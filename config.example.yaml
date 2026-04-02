@@ -1,0 +1,41 @@
+plex:
+  url: "http://192.168.1.X:32400"
+  # When running in Docker on the same machine as Plex, use:
+  # url: "http://host.docker.internal:32400"
+  token: ""
+  library: "Movies"
+  tv_library: "TV Shows"
+
+ai:
+  provider: gemini        # gemini | ollama
+
+  # Gemini
+  model: "gemini-2.5-flash"
+  api_key: ""
+
+  # Ollama (local, self-hosted — uncomment and set provider: ollama above)
+  # model: "llama3"
+  # base_url: "http://ollama:11434"  # use http://localhost:11434 outside Docker
+
+rows:
+  max_results: 15    # max items per row; duplicates across rows are excluded
+  collecting_dust:
+    enabled: true
+    min_age_days: 30       # how long a film must sit unwatched before qualifying
+  easy_watch:
+    enabled: true
+  existential:
+    enabled: true
+  adrenaline:
+    enabled: true
+  quick_watch:
+    enabled: true
+    max_minutes: 90        # maximum runtime in minutes
+  tv_collecting_dust:
+    enabled: true
+    idle_days: 60          # days since last watched episode before a show qualifies
+  give_it_a_shot:
+    enabled: true
+
+schedule:
+  cron: "0 3 * * 1"  # every Monday at 3am

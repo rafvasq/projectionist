@@ -1,0 +1,22 @@
+# Config with secrets — copy config.example.yaml to config.yaml and fill in
+config.yaml
+
+# Python
+.coverage
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+
+# Claude Code
+.claude/
+
+# Docker
+*.env
+
+# macOS
+.DS_Store
