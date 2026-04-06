@@ -21,6 +21,9 @@ class FakeProvider(AIProvider):
     def categorize(self, movies: list[dict[str, Any]], row_prompt: str) -> list[int]:
         return self._keys
 
+    def curate(self, movies: list[dict[str, Any]]) -> tuple[str, list[int]]:
+        return ("Curator's Pick", self._keys)
+
 
 def _keys(movies: list[MovieMeta]) -> list[int]:
     return [m.ratingKey for m in movies]
@@ -40,6 +43,8 @@ def test_easy_watch_passes_all_movies_to_provider():
         def categorize(self, m, prompt):
             received.append(m)
             return []
+        def curate(self, m):
+            return ("", [])
 
     filter_easy_watch(movies, CapturingProvider())
     assert len(received[0]) == 3
@@ -60,6 +65,8 @@ def test_existential_passes_all_movies_to_provider():
         def categorize(self, m, prompt):
             received.append(m)
             return []
+        def curate(self, m):
+            return ("", [])
 
     filter_existential(movies, CapturingProvider())
     assert len(received[0]) == 3
@@ -79,6 +86,8 @@ def test_adrenaline_passes_all_movies_to_provider():
         def categorize(self, m, prompt):
             received.append(m)
             return []
+        def curate(self, m):
+            return ("", [])
 
     filter_adrenaline(movies, CapturingProvider())
     assert len(received[0]) == 3
@@ -92,6 +101,8 @@ def test_empty_library_passes_empty_list_to_provider():
         def categorize(self, m, prompt):
             received.append(m)
             return []
+        def curate(self, m):
+            return ("", [])
 
     for fn in [filter_easy_watch, filter_existential, filter_adrenaline]:
         received.clear()

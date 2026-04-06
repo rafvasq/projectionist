@@ -16,3 +16,11 @@ class AIProvider(ABC):
         return the ratingKeys of movies that belong in that row.
         """
         ...
+
+    @abstractmethod
+    def curate(self, movies: list[dict[str, Any]]) -> tuple[str, list[int]]:
+        """
+        Given the full movie library, invent a creative collection: choose a
+        name, theme, and pick the films.  Returns (collection_name, ratingKeys).
+        """
+        ...

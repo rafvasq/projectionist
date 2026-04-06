@@ -36,6 +36,8 @@ rows:
     idle_days: 60          # days since last watched episode before a show qualifies
   give_it_a_shot:
     enabled: true
+  wildcard:
+    enabled: true   # AI invents a new collection name, theme, and film list each week
 
 schedule:
   cron: "0 3 * * 1"  # every Monday at 3am

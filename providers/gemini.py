@@ -71,6 +71,63 @@ class GeminiProvider(AIProvider):
             "no markdown, no explanation, no code fences. Example: [123, 456, 789]"
         )
 
+    def curate(self, movies: list[dict[str, Any]]) -> tuple[str, list[int]]:
+        """Single call: AI invents a collection name, theme, and picks films."""
+        prompt = self._build_curate_prompt(movies)
+        try:
+            response = self._client.models.generate_content(
+                model=self._model_name,
+                contents=prompt,
+            )
+        except Exception as exc:
+            logger.error("Gemini curate API error: %s", exc)
+            return ("Curator's Pick", [])
+
+        return self._parse_curate_response(response.text)
+
+    @staticmethod
+    def _build_curate_prompt(movies: list[dict[str, Any]]) -> str:
+        compact = [
+            {"ratingKey": m["ratingKey"], "title": m["title"], "year": m["year"],
+             "genres": m["genres"], "rating": m["rating"]}
+            for m in movies
+        ]
+        movies_json = json.dumps(compact, ensure_ascii=False)
+        return (
+            "You are a creative film curator for a small, personal Plex library.\n"
+            "Look at this entire movie collection and invent ONE unexpected, thematic collection "
+            "that would delight the owner. The collection should have a creative, evocative name "
+            "and a distinct mood or theme not already covered by these existing rows: "
+            "Collecting Dust, Easy Watch, Existential & Atmospheric, Second-Hand Adrenaline, "
+            "90-Minute Dash, Give it a Shot.\n\n"
+            "Rules:\n"
+            "- Pick 10–20 films that genuinely fit your theme\n"
+            "- The name should be punchy and fun (3–6 words)\n"
+            "- Be creative — think beyond obvious genres\n\n"
+            f"Movie library:\n{movies_json}\n\n"
+            'Return ONLY a raw JSON object: {"name": "Your Creative Name", "keys": [ratingKey1, ratingKey2, ...]}\n'
+            "No markdown, no explanation, no code fences."
+        )
+
+    @staticmethod
+    def _parse_curate_response(text: str) -> tuple[str, list[int]]:
+        cleaned = re.sub(r"```(?:json)?|```", "", text).strip()
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if not match:
+            logger.warning("curate: no JSON object found in Gemini response")
+            logger.debug("Raw response: %s", text)
+            return ("Curator's Pick", [])
+        try:
+            data = json.loads(match.group())
+        except json.JSONDecodeError as exc:
+            logger.warning("curate: could not parse JSON from Gemini response: %s", exc)
+            return ("Curator's Pick", [])
+
+        name = data.get("name", "Curator's Pick")
+        keys = [k for k in data.get("keys", []) if isinstance(k, int)]
+        logger.info("curate: invented collection '%s' with %d films", name, len(keys))
+        return (name, keys)
+
     @staticmethod
     def _parse_keys(text: str, batch_num: int) -> list[int]:
         """Extract a JSON integer array from the model's response."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 from typing import Any
 
@@ -87,6 +88,74 @@ class OllamaProvider(AIProvider):
             "Respond with ONLY a raw JSON array of ratingKey integers — "
             "no markdown, no explanation, no code fences. Example: [123, 456, 789]"
         )
+
+    def curate(self, movies: list[dict[str, Any]]) -> tuple[str, list[int]]:
+        """Single call: AI invents a collection name, theme, and picks films."""
+        # Use a random 100-film sample — local models have tight context windows
+        sample = movies if len(movies) <= 100 else random.sample(movies, 100)
+        prompt = self._build_curate_prompt(sample)
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json={"model": self.model, "prompt": prompt, "stream": False, "format": "json"},
+                timeout=180,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            logger.error("Ollama curate API error: %s", exc)
+            return ("Curator's Pick", [])
+
+        try:
+            text = response.json().get("response", "")
+        except (json.JSONDecodeError, KeyError) as exc:
+            logger.error("Ollama curate response parse error: %s", exc)
+            return ("Curator's Pick", [])
+
+        return self._parse_curate_response(text)
+
+    @staticmethod
+    def _build_curate_prompt(movies: list[dict[str, Any]]) -> str:
+        compact = [
+            {"ratingKey": m["ratingKey"], "title": m["title"], "year": m["year"],
+             "genres": m["genres"], "rating": m["rating"]}
+            for m in movies
+        ]
+        movies_json = json.dumps(compact, ensure_ascii=False)
+        return (
+            "You are a creative film curator for a small, personal Plex library.\n"
+            "Look at this movie collection and invent ONE unexpected, thematic collection "
+            "that would delight the owner. The collection should have a creative, evocative name "
+            "and a distinct mood or theme not already covered by these existing rows: "
+            "Collecting Dust, Easy Watch, Existential & Atmospheric, Second-Hand Adrenaline, "
+            "90-Minute Dash, Give it a Shot.\n\n"
+            "Rules:\n"
+            "- Pick 10–20 films that genuinely fit your theme\n"
+            "- The name should be punchy and fun (3–6 words)\n"
+            "- Be creative — think beyond obvious genres\n\n"
+            f"Movie library:\n{movies_json}\n\n"
+            'Return ONLY a raw JSON object: {"name": "Your Creative Name", "keys": [ratingKey1, ratingKey2, ...]}\n'
+            "No markdown, no explanation, no code fences."
+        )
+
+    @staticmethod
+    def _parse_curate_response(text: str) -> tuple[str, list[int]]:
+        cleaned = re.sub(r"```(?:json)?|```", "", text).strip()
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if not match:
+            logger.warning("curate: no JSON object found in Ollama response")
+            logger.debug("Raw response: %s", text)
+            return ("Curator's Pick", [])
+        try:
+            data = json.loads(match.group())
+        except json.JSONDecodeError as exc:
+            logger.warning("curate: could not parse JSON from Ollama response: %s", exc)
+            return ("Curator's Pick", [])
+
+        name = data.get("name", "Curator's Pick")
+        keys = [k for k in data.get("keys", []) if isinstance(k, int)]
+        logger.info("curate: invented collection '%s' with %d films", name, len(keys))
+        return (name, keys)
 
     @staticmethod
     def _parse_keys(text: str, batch_num: int) -> list[int]:

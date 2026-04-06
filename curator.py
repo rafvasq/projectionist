@@ -22,6 +22,7 @@ from rows.adrenaline import filter_adrenaline
 from rows.quick_watch import filter_quick_watch
 from rows.tv_collecting_dust import filter_tv_collecting_dust
 from rows.give_it_a_shot import filter_give_it_a_shot
+from rows.wildcard import filter_wildcard
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,16 @@ def run(config_path: str = "config.yaml") -> None:
         collections_written.append((COLLECTION_QUICK_WATCH, len(quick_keys)))
     else:
         logger.info("90-Minute Dash: disabled")
+
+    wc_cfg = rows_cfg.get("wildcard", {})
+    if _enabled(wc_cfg):
+        wc_name, wc_keys = filter_wildcard(movies, provider)
+        wc_keys = _pick(wc_keys, movie_seen, max_results)
+        logger.info("Wildcard '%s': %d items", wc_name, len(wc_keys))
+        client.upsert_collection(wc_name, wc_keys)
+        collections_written.append((wc_name, len(wc_keys)))
+    else:
+        logger.info("Wildcard: disabled")
 
     # ------------------------------------------------------------------
     # TV Shows — separate deduplication pool

@@ -20,6 +20,7 @@ A self-hosted AI curation layer for Plex. Reads your library, applies a mix of r
 | **Existential & Atmospheric** | AI | Philosophical, meditative films that linger after the credits |
 | **Second-Hand Adrenaline** | AI | High-tension, propulsive thrillers and crime films |
 | **90-Minute Dash** | Rule-based | Unwatched films under 90 minutes |
+| **Wildcard** | AI | A surprise collection invented fresh each week — name, theme, and films all chosen by the AI |
 
 ### TV Shows
 
@@ -123,6 +124,8 @@ rows:
     idle_days: 60                       # days since last watched episode before a show qualifies
   give_it_a_shot:
     enabled: true
+  wildcard:
+    enabled: true                        # AI invents a new collection name, theme, and film list each week
 
 schedule:
   cron: "0 3 * * 1"                    # every Monday at 3am
