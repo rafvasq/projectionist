@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./config.yaml:/app/config.yaml:ro
+      - ./state.json:/app/state.json
     environment:
       - PYTHONUNBUFFERED=1
 
