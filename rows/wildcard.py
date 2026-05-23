@@ -6,7 +6,7 @@ from providers.base import AIProvider
 from plex_client import MovieMeta
 
 
-def filter_wildcard(movies: list[MovieMeta], provider: AIProvider) -> tuple[str, list[int]]:
+def filter_wildcard(movies: list[MovieMeta], provider: AIProvider, exclude_themes: list[str] | None = None) -> tuple[str, list[int]]:
     """
     Ask the AI to invent a creative collection: it picks the name, theme,
     and films all in one shot.  Returns (collection_name, ratingKeys).
@@ -21,4 +21,4 @@ def filter_wildcard(movies: list[MovieMeta], provider: AIProvider) -> tuple[str,
         }
         for m in movies
     ]
-    return provider.curate(payload)
+    return provider.curate(payload, exclude_themes)

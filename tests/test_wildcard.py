@@ -19,7 +19,7 @@ class FakeCurateProvider(AIProvider):
     def categorize(self, movies: list[dict[str, Any]], row_prompt: str) -> list[int]:
         return []
 
-    def curate(self, movies: list[dict[str, Any]]) -> tuple[str, list[int]]:
+    def curate(self, movies: list[dict[str, Any]], exclude_themes: list[str] | None = None) -> tuple[str, list[int]]:
         return (self._name, self._keys)
 
 
@@ -39,7 +39,7 @@ def test_wildcard_passes_compact_payload():
     class CapturingProvider(AIProvider):
         def categorize(self, m, prompt):
             return []
-        def curate(self, m):
+        def curate(self, m, exclude_themes=None):
             received.append(m)
             return ("", [])
 
@@ -60,7 +60,7 @@ def test_wildcard_empty_library():
     class CapturingProvider(AIProvider):
         def categorize(self, m, prompt):
             return []
-        def curate(self, m):
+        def curate(self, m, exclude_themes=None):
             received.append(m)
             return ("Empty Pick", [])
 
@@ -76,9 +76,24 @@ def test_wildcard_passes_all_movies():
     class CapturingProvider(AIProvider):
         def categorize(self, m, prompt):
             return []
-        def curate(self, m):
+        def curate(self, m, exclude_themes=None):
             received.append(m)
             return ("", [])
 
     filter_wildcard(movies, CapturingProvider())
     assert len(received[0]) == 20
+
+
+def test_wildcard_passes_exclude_themes():
+    movies = [make_movie(ratingKey=1)]
+    received_excludes = []
+
+    class ExcludeCapturingProvider(AIProvider):
+        def categorize(self, m, prompt):
+            return []
+        def curate(self, m, exclude_themes=None):
+            received_excludes.append(exclude_themes)
+            return ("Test Row", [1])
+
+    filter_wildcard(movies, ExcludeCapturingProvider(), ["Ex1", "Ex2"])
+    assert received_excludes == [["Ex1", "Ex2"]]

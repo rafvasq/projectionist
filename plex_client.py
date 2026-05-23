@@ -81,6 +81,9 @@ class PlexClient:
         self._token = token
         self._library_name = library
         self._server: Optional[PlexServer] = None
+        self._library_sections_cache: dict = {}
+        self._library_items_cache: dict = {}
+        self._items_lookup_by_key: dict = {}
 
     # ------------------------------------------------------------------
     # Connection
@@ -102,29 +105,35 @@ class PlexClient:
     # Metadata fetching
     # ------------------------------------------------------------------
 
+    def _get_library_section(self, name: str):
+        """Retrieve a library section by name, caching it to avoid redundant lookups."""
+        if name not in self._library_sections_cache:
+            try:
+                self._library_sections_cache[name] = self.server.library.section(name)
+            except NotFound:
+                raise ValueError(
+                    f"Library '{name}' not found on this Plex server."
+                )
+        return self._library_sections_cache[name]
+
+    def _get_library_items(self, name: str):
+        """Retrieve all items in a library section, caching them and pre-indexing by ratingKey."""
+        if name not in self._library_items_cache:
+            library = self._get_library_section(name)
+            items = library.all()
+            self._library_items_cache[name] = items
+            self._items_lookup_by_key[name] = {m.ratingKey: m for m in items}
+        return self._library_items_cache[name]
+
     def fetch_movies(self) -> list[MovieMeta]:
         """Return a list of MovieMeta for every item in the configured library."""
-        try:
-            library = self.server.library.section(self._library_name)
-        except NotFound:
-            raise ValueError(
-                f"Library '{self._library_name}' not found on this Plex server. "
-                "Check the 'library' key in config.yaml."
-            )
-        movies = library.all()
+        movies = self._get_library_items(self._library_name)
         logger.info("Fetched %d movies from '%s'", len(movies), self._library_name)
         return [self._movie_to_meta(m) for m in movies]
 
     def fetch_shows(self, library_name: str) -> list[ShowMeta]:
         """Return a list of ShowMeta for every show in the given TV library."""
-        try:
-            library = self.server.library.section(library_name)
-        except NotFound:
-            raise ValueError(
-                f"Library '{library_name}' not found on this Plex server. "
-                "Check the 'tv_library' key in config.yaml."
-            )
-        shows = library.all()
+        shows = self._get_library_items(library_name)
         logger.info("Fetched %d shows from '%s'", len(shows), library_name)
         return [self._show_to_meta(s) for s in shows]
 
@@ -204,9 +213,11 @@ class PlexClient:
             logger.warning("Could not promote collection '%s': %s", title, exc)
 
     def _fetch_items_by_keys(self, library, keys: list[int]):
-        """Bulk-fetch Plex media objects by their ratingKeys."""
-        key_set = set(keys)
-        items = [m for m in library.all() if m.ratingKey in key_set]
+        """Bulk-fetch Plex media objects by their ratingKeys using cache dictionary."""
+        lib_name = library.title
+        self._get_library_items(lib_name)
+        lookup = self._items_lookup_by_key[lib_name]
+        items = [lookup[k] for k in keys if k in lookup]
         order = {k: i for i, k in enumerate(keys)}
         items.sort(key=lambda m: order.get(m.ratingKey, len(keys)))
         return items

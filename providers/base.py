@@ -18,7 +18,7 @@ class AIProvider(ABC):
         ...
 
     @abstractmethod
-    def curate(self, movies: list[dict[str, Any]]) -> tuple[str, list[int]]:
+    def curate(self, movies: list[dict[str, Any]], exclude_themes: list[str] | None = None) -> tuple[str, list[int]]:
         """
         Given the full movie library, invent a creative collection: choose a
         name, theme, and pick the films.  Returns (collection_name, ratingKeys).

@@ -94,6 +94,8 @@ plex:
   library: "Movies"                     # Name of your movie library
   tv_library: "TV Shows"                # Name of your TV library
 
+state_path: "state.json"                # File path to track generated collections for auto-cleanup next week (optional)
+
 ai:
   provider: gemini                      # gemini | ollama
 
@@ -125,7 +127,15 @@ rows:
   give_it_a_shot:
     enabled: true
   wildcard:
-    enabled: true                        # AI invents a new collection name, theme, and film list each week
+    enabled: true                       # AI invents a new collection name, theme, and film list each week
+    count: 1                            # Number of wildcard rows to generate each week (default: 1)
+
+  # Config-driven custom AI rows — no coding/files required!
+  custom_ai_rows:
+    - name: "Romantic Tearjerkers"
+      enabled: false
+      prompt: "Select emotionally heavy, highly romantic dramas that are guaranteed to make someone cry."
+      deduplicate: true                 # Prevent duplicates across rows (default: true)
 
 schedule:
   cron: "0 3 * * 1"                    # every Monday at 3am

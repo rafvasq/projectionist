@@ -89,11 +89,11 @@ class OllamaProvider(AIProvider):
             "no markdown, no explanation, no code fences. Example: [123, 456, 789]"
         )
 
-    def curate(self, movies: list[dict[str, Any]]) -> tuple[str, list[int]]:
+    def curate(self, movies: list[dict[str, Any]], exclude_themes: list[str] | None = None) -> tuple[str, list[int]]:
         """Single call: AI invents a collection name, theme, and picks films."""
         # Use a random 100-film sample — local models have tight context windows
         sample = movies if len(movies) <= 100 else random.sample(movies, 100)
-        prompt = self._build_curate_prompt(sample)
+        prompt = self._build_curate_prompt(sample, exclude_themes)
 
         try:
             response = requests.post(
@@ -115,20 +115,26 @@ class OllamaProvider(AIProvider):
         return self._parse_curate_response(text)
 
     @staticmethod
-    def _build_curate_prompt(movies: list[dict[str, Any]]) -> str:
+    def _build_curate_prompt(movies: list[dict[str, Any]], exclude_themes: list[str] | None = None) -> str:
         compact = [
             {"ratingKey": m["ratingKey"], "title": m["title"], "year": m["year"],
              "genres": m["genres"], "rating": m["rating"]}
             for m in movies
         ]
         movies_json = json.dumps(compact, ensure_ascii=False)
+        
+        existing = ["Collecting Dust", "Easy Watch", "Existential & Atmospheric", 
+                    "Second-Hand Adrenaline", "90-Minute Dash", "Give it a Shot"]
+        if exclude_themes:
+            existing.extend(exclude_themes)
+        existing_str = ", ".join(existing)
+
         return (
             "You are a creative film curator for a small, personal Plex library.\n"
             "Look at this movie collection and invent ONE unexpected, thematic collection "
             "that would delight the owner. The collection should have a creative, evocative name "
             "and a distinct mood or theme not already covered by these existing rows: "
-            "Collecting Dust, Easy Watch, Existential & Atmospheric, Second-Hand Adrenaline, "
-            "90-Minute Dash, Give it a Shot.\n\n"
+            f"{existing_str}.\n\n"
             "Rules:\n"
             "- Pick 10–20 films that genuinely fit your theme\n"
             "- The name should be punchy and fun (3–6 words)\n"
