@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+import requests
 
 from plex_client import MovieMeta, ShowMeta
 
@@ -61,3 +62,26 @@ def make_show(
         viewed_episode_count=viewed_episode_count,
         total_episode_count=total_episode_count,
     )
+
+
+@pytest.fixture(autouse=True)
+def disable_network_modifications(monkeypatch):
+    """
+    Ensure no tests can make POST, PUT, PATCH, or DELETE requests.
+    This prevents the test suite from accidentally requesting new movies
+    in Overseerr or deleting files in Radarr/Sonarr.
+    """
+    def _block_request(*args, **kwargs):
+        # We don't want tests to accidentally hit the real Overseerr / Radarr APIs
+        raise RuntimeError(f"Network modification blocked in tests! Attempted to call an API with args: {args}")
+
+    monkeypatch.setattr("requests.post", _block_request)
+    monkeypatch.setattr("requests.put", _block_request)
+    monkeypatch.setattr("requests.patch", _block_request)
+    monkeypatch.setattr("requests.delete", _block_request)
+    
+    monkeypatch.setattr("requests.Session.post", _block_request)
+    monkeypatch.setattr("requests.Session.put", _block_request)
+    monkeypatch.setattr("requests.Session.patch", _block_request)
+    monkeypatch.setattr("requests.Session.delete", _block_request)
+

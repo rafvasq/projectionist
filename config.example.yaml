@@ -10,7 +10,7 @@ ai:
   provider: gemini        # gemini | ollama
 
   # Gemini
-  model: "gemini-2.5-flash"
+  model: "gemini-3.5-flash-lite"
   api_key: ""
 
   # Ollama (local, self-hosted — uncomment and set provider: ollama above)
@@ -18,35 +18,31 @@ ai:
   # base_url: "http://ollama:11434"  # use http://localhost:11434 outside Docker
 
 rows:
-  max_results: 15    # max items per row; duplicates across rows are excluded
-  collecting_dust:
-    enabled: true
-    min_age_days: 30       # how long a film must sit unwatched before qualifying
-  easy_watch:
-    enabled: true
-  existential:
-    enabled: true
-  adrenaline:
-    enabled: true
-  quick_watch:
-    enabled: true
-    max_minutes: 90        # maximum runtime in minutes
-  tv_collecting_dust:
-    enabled: true
-    idle_days: 60          # days since last watched episode before a show qualifies
-  give_it_a_shot:
-    enabled: true
-  wildcard:
-    enabled: true   # AI invents a new collection name, theme, and film list each week
-    count: 1        # Number of wildcard rows to generate each week
-    # wildcard_state_path: "wildcard_state.json"  # Path to persist generated wildcard names (optional)
-
-  # Config-driven custom AI rows — no coding required!
-  custom_ai_rows:
-    # - name: "Romantic Tearjerkers"
-    #   enabled: true
-    #   prompt: "Select emotionally heavy, highly romantic dramas that are guaranteed to make someone cry."
-    #   deduplicate: true
+  count: 1              # number of AI-generated collections per run
+  max_results: 15       # max films per collection
+  cooldown_weeks: 3     # films surfaced recently won't reappear for this many weeks
 
 schedule:
   cron: "0 3 * * 1"  # every Monday at 3am
+
+whatsapp:
+  enabled: false
+  allowed_numbers:
+    - "whatsapp:+12345678900"
+  twilio_account_sid: ""
+  twilio_auth_token: ""
+  twilio_phone_number: ""
+
+overseerr:
+  url: "http://192.168.1.X:5055"
+  api_key: ""
+
+radarr:
+  url: "http://192.168.1.X:7878"
+  api_key: ""
+
+deletion:
+  enabled: false
+  dry_run: true
+  max_age_days: 120
+  protect_tag: "Keep Forever"

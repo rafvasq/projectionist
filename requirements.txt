@@ -4,3 +4,8 @@ types-PyYAML>=6.0
 google-genai>=1.0
 requests>=2.31
 pytest>=8.0
+flask>=3.0
+twilio>=8.0
+beautifulsoup4>=4.12
+mellea
+litellm

@@ -31,6 +31,9 @@ class MovieMeta:
     last_viewed_at: Optional[datetime]
     genres: list[str] = field(default_factory=list)
     duration_ms: Optional[int] = None
+    collections: list[str] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)
+    tmdb_id: Optional[int] = None
 
     @property
     def watched(self) -> bool:
@@ -139,6 +142,17 @@ class PlexClient:
 
     @staticmethod
     def _movie_to_meta(movie) -> MovieMeta:
+        collections = [c.tag for c in getattr(movie, "collections", [])]
+        labels = [l.tag for l in getattr(movie, "labels", [])]
+        
+        tmdb_id = None
+        for guid in getattr(movie, "guids", []):
+            if guid.id.startswith("tmdb://"):
+                try: 
+                    tmdb_id = int(guid.id.split("tmdb://")[1])
+                except: 
+                    pass
+                    
         return MovieMeta(
             ratingKey=movie.ratingKey,
             title=movie.title,
@@ -150,6 +164,9 @@ class PlexClient:
             last_viewed_at=getattr(movie, "lastViewedAt", None),
             genres=[g.tag for g in getattr(movie, "genres", [])],
             duration_ms=getattr(movie, "duration", None),
+            collections=collections,
+            labels=labels,
+            tmdb_id=tmdb_id
         )
 
     @staticmethod

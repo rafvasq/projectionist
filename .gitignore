@@ -1,4 +1,4 @@
-# Config with secrets — copy config.example.yaml to config.yaml and fill in
+﻿# Config with secrets
 config.yaml
 
 # Python
@@ -21,6 +21,8 @@ venv/
 # macOS
 .DS_Store
 
-# Projectionist state files
-state.json
-wildcard_state.json
+# Projectionist state data
+data/
+
+# Temporary test scripts
+scratch/

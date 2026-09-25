@@ -1,12 +1,12 @@
 services:
   projectionist:
-    image: ghcr.io/rafvasq/projectionist:latest
+    # image: ghcr.io/rafvasq/projectionist:latest
     # Comment out the image line above and uncomment below to build locally
-    # build: .
+    build: .
     restart: unless-stopped
     volumes:
       - ./config.yaml:/app/config.yaml:ro
-      - ./state.json:/app/state.json
+      - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
 
@@ -23,6 +23,33 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+
+  whatsapp-bot:
+    build: .
+    container_name: projectionist-whatsapp-bot
+    restart: unless-stopped
+    entrypoint: ["python", "whatsapp_bot.py"]
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data
+    ports:
+      - "5000:5000"
+    environment:
+      - TZ=America/New_York
+      - PLEX_URL=${PLEX_URL}
+      - PLEX_TOKEN=${PLEX_TOKEN}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PYTHONUNBUFFERED=1
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: projectionist-ngrok
+    restart: unless-stopped
+    command: ["http", "whatsapp-bot:5000", "--domain=unholy-stonewall-sarcasm.ngrok-free.dev"]
+    environment:
+      - NGROK_AUTHTOKEN=3JTjRVykkdOYxZPxCGpI9swAkUd_7jrtGNycF8VzQMzTYSoqg
+    depends_on:
+      - whatsapp-bot
 
 volumes:
   ollama_data:

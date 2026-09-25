@@ -3,41 +3,42 @@
 ![Tests](https://github.com/rafvasq/projectionist/actions/workflows/test.yml/badge.svg)
 ![Release](https://img.shields.io/github/v/release/rafvasq/projectionist)
 
-A self-hosted AI curation layer for Plex. Reads your library, applies a mix of rule-based filters and AI judgment, and writes the results back as Collections pinned to your Plex home screen as browsable rows — refreshed automatically on a weekly schedule.
+Projectionist is a self-hosted AI concierge and curation layer for your Plex home theater. It aims to eliminate friction and elevate the media server experience by surfacing forgotten content, managing requests via a natural language WhatsApp bot, and keeping your storage clean autonomously.
 
 ![Second-Hand Adrenaline row showing American Psycho, Batman Begins, The Battle of Algiers, Bugonia, and Good Time](assets/screenshot.jpg)
 
 ---
 
-## Rows
+## Features
 
-### Movies
+Projectionist is comprised of four main components that work together to maintain and curate your server:
 
-| Row | Logic | Description |
-| --- | --- | --- |
-| **Collecting Dust** | Rule-based | Unwatched films sitting in your library for 30+ days |
-| **Easy Watch** | AI | Warm, low-stress comfort picks |
-| **Existential & Atmospheric** | AI | Philosophical, meditative films that linger after the credits |
-| **Second-Hand Adrenaline** | AI | High-tension, propulsive thrillers and crime films |
-| **90-Minute Dash** | Rule-based | Unwatched films under 90 minutes |
-| **Wildcard** | AI | A surprise collection invented fresh each week — name, theme, and films all chosen by the AI |
+### 1. The Curator (Home Screen Curation)
+Each week, the AI scans your movie library and invents creative themed collections (e.g., *"Chasing Glory, Counting Scars"* or *"Best Laid Plans..."*), picking films that fit the theme and pinning them to your Plex home screen.
+- **Fresh every week**: Previous collections are deleted and new ones are created.
+- **No repeats**: A cooldown ensures the same films aren't constantly pushed.
 
-### TV Shows
+### 2. The Concierge (WhatsApp Bot)
+A Flask-based WhatsApp bot (powered by Twilio and Overseerr) that allows users to request movies and shows conversationally.
+- **Natural Language Parsing**: Ask for "the movie with the guy who has scissors for hands" and it will resolve the intent to *Edward Scissorhands*.
+- **Letterboxd Integration**: Paste a Letterboxd list URL directly into the chat to bulk-request all movies on the list.
+- **Proactive Notifications**: Notifies users automatically when their requested media is downloaded and available on Plex.
 
-| Row | Logic | Description |
-| --- | --- | --- |
-| **Collecting Dust** | Rule-based | Shows started but not watched in 60+ days |
-| **Give it a Shot** | Rule-based | Shows with zero episodes watched |
+### 3. The Promoter (Weekly Digest)
+A scheduled task that sends out a "Weekly Plex Digest" on WhatsApp, highlighting recently added movies and throwing in a few random "From the Vault" recommendations to encourage watching older downloads.
 
-Each run shuffles the results — rows feel different every week. No film appears in two movie rows (except 90-Minute Dash, which overlaps intentionally).
+### 4. The Janitor (Deletion Engine)
+Keeps your hard drives from filling up. It scans for movies that are older than a set number of days and haven't been watched recently, then uses Radarr to delete them. Respects a "Keep Forever" tag for your permanent library.
 
 ---
 
 ## Requirements
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (recommended for easy deployment)
 - A Plex server
-- An AI provider — see [AI providers](#ai-providers) below
+- An AI provider (Gemini or Ollama)
+- Overseerr & Radarr (if using the request and deletion features)
+- Twilio Account (if using the WhatsApp bot)
 
 ---
 
@@ -45,7 +46,7 @@ Each run shuffles the results — rows feel different every week. No film appear
 
 ### 1. Get the files
 
-Download both files from the [latest release](https://github.com/rafvasq/projectionist/releases/latest):
+Download the compose and config files:
 
 ```bash
 curl -LO https://github.com/rafvasq/projectionist/releases/latest/download/docker-compose.yml
@@ -55,7 +56,8 @@ cp config.example.yaml config.yaml
 
 ### 2. Edit config.yaml
 
-Fill in your Plex URL and token. To find your Plex token, follow [this guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). Then choose an AI provider — see [AI providers](#ai-providers) below.
+Fill in your Plex URL and token. To find your Plex token, follow [this guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). 
+Fill in the API keys for Gemini, Overseerr, Twilio, and Radarr depending on which features you want to use.
 
 ### 3. Start
 
@@ -71,7 +73,7 @@ docker-compose up -d
 docker-compose --profile ollama up -d
 ```
 
-Projectionist runs once on startup, then on the configured cron schedule (default: Mondays at 3am).
+Projectionist's scheduled jobs (curator, digest) will run on the configured cron schedule. The WhatsApp bot runs continuously in the background.
 
 ### Viewing logs
 
@@ -79,69 +81,11 @@ Projectionist runs once on startup, then on the configured cron schedule (defaul
 docker-compose logs -f projectionist
 ```
 
-A successful run ends with `Done — 7 collections updated and pinned to library views.`
-
 ---
 
 ## Configuration
 
-All options with descriptions:
-
-```yaml
-plex:
-  url: "http://192.168.1.X:32400"       # Plex server URL; use host.docker.internal when running on the same machine as Plex
-  token: ""                             # Plex auth token
-  library: "Movies"                     # Name of your movie library
-  tv_library: "TV Shows"                # Name of your TV library
-
-state_path: "state.json"                # File path to track generated collections for auto-cleanup next week (optional)
-
-ai:
-  provider: gemini                      # gemini | ollama
-
-  # Gemini
-  model: "gemini-2.5-flash"
-  api_key: ""
-
-  # Ollama
-  # model: "llama3"
-  # base_url: "http://ollama:11434"     # use http://localhost:11434 outside Docker
-
-rows:
-  max_results: 15                       # max items per row; duplicates across rows are excluded
-  collecting_dust:
-    enabled: true
-    min_age_days: 30                    # how long a film must sit unwatched before qualifying
-  easy_watch:
-    enabled: true
-  existential:
-    enabled: true
-  adrenaline:
-    enabled: true
-  quick_watch:
-    enabled: true
-    max_minutes: 90                     # maximum runtime in minutes
-  tv_collecting_dust:
-    enabled: true
-    idle_days: 60                       # days since last watched episode before a show qualifies
-  give_it_a_shot:
-    enabled: true
-  wildcard:
-    enabled: true                       # AI invents a new collection name, theme, and film list each week
-    count: 1                            # Number of wildcard rows to generate each week (default: 1)
-
-  # Config-driven custom AI rows — no coding/files required!
-  custom_ai_rows:
-    - name: "Romantic Tearjerkers"
-      enabled: false
-      prompt: "Select emotionally heavy, highly romantic dramas that are guaranteed to make someone cry."
-      deduplicate: true                 # Prevent duplicates across rows (default: true)
-
-schedule:
-  cron: "0 3 * * 1"                    # every Monday at 3am
-```
-
-Any row can be disabled by setting `enabled: false`.
+See `config.example.yaml` for a full list of configuration options, including settings for the WhatsApp bot, deletion engine thresholds, and AI model choices.
 
 ---
 
@@ -149,10 +93,9 @@ Any row can be disabled by setting `enabled: false`.
 
 ### Gemini (default)
 
-No GPU required. The free tier of `gemini-2.5-flash` handles a typical home library with one API call per AI row per run.
+No GPU required. The free tier of `gemini-3.5-flash-lite` handles a typical home library easily.
 
 1. Get an API key at [aistudio.google.com](https://aistudio.google.com).
-
 2. In `config.yaml`, set `provider: gemini` and fill in your `api_key` and `model`.
 
 ### Ollama (local, self-hosted)
@@ -162,15 +105,5 @@ No API costs, no data leaves your network. 7B–9B parameter models work well (`
 GPU support requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
 
 1. In `config.yaml`, set `provider: ollama` and fill in the `model` and `base_url` under `# Ollama`.
-
-2. Start with the Ollama profile:
-
-   ```bash
-   docker-compose --profile ollama up -d
-   ```
-
-3. Pull a model:
-
-   ```bash
-   docker-compose exec ollama ollama pull llama3
-   ```
+2. Start with the Ollama profile: `docker-compose --profile ollama up -d`
+3. Pull a model: `docker-compose exec ollama ollama pull llama3`
