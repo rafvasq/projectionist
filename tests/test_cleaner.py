@@ -31,7 +31,7 @@ def mock_config():
 @patch('cleaner.from_config')
 @patch('cleaner.requests.get')
 @patch('cleaner.requests.delete')
-@patch('builtins.open', new_callable=mock_open)
+@patch('cleaner.open', new_callable=mock_open, create=True)
 def test_cleaner_run_deletion(mock_file, mock_delete, mock_get, mock_from_config, mock_yaml, mock_args, mock_config):
     # Setup args
     mock_args.return_value.run_deletion = True
@@ -89,7 +89,7 @@ def test_cleaner_run_deletion(mock_file, mock_delete, mock_get, mock_from_config
 @patch('cleaner.os.path.exists')
 @patch('cleaner.os.remove')
 @patch('cleaner.Client')
-@patch('builtins.open', new_callable=mock_open)
+@patch('cleaner.open', new_callable=mock_open, create=True)
 def test_cleaner_send_notification(mock_file, mock_twilio_client, mock_remove, mock_exists, mock_yaml, mock_args, mock_config):
     mock_args.return_value.run_deletion = False
     mock_args.return_value.send_notification = True
