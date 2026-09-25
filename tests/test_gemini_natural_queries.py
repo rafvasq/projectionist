@@ -4,9 +4,10 @@ from mellea import start_session
 from whatsapp_bot import parse_movie
 
 # Check if Gemini API Key is available
-HAS_GEMINI = "GEMINI_API_KEY" in os.environ or any(
-    line.startswith("  api_key:") for line in open(os.path.join(os.path.dirname(__file__), '..', 'config.yaml'), encoding='utf-8')
-    if os.path.exists(os.path.join(os.path.dirname(__file__), '..', 'config.yaml'))
+config_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+HAS_GEMINI = "GEMINI_API_KEY" in os.environ or (
+    os.path.exists(config_path) and 
+    any(line.strip().startswith("api_key:") for line in open(config_path, encoding='utf-8'))
 )
 
 @pytest.mark.skipif(not HAS_GEMINI, reason="No Gemini API Key found")

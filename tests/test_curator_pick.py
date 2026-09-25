@@ -4,8 +4,7 @@ import json
 import pytest
 from datetime import datetime, timedelta
 from pathlib import Path
-from curator import _pick, _build_provider, _build_payload, _load_cooldown, _save_cooldown
-
+from curator import _pick, _setup_ai_env, _build_payload, _load_cooldown, _save_cooldown
 
 # -------------------------------------------------------------------
 # _pick() tests
@@ -50,7 +49,7 @@ def test_dedup_across_two_rows():
 
 def test_unknown_provider_raises():
     with pytest.raises(ValueError, match="Unknown AI provider"):
-        _build_provider({"ai": {"provider": "openai"}})
+        _setup_ai_env({"ai": {"provider": "openai"}})
 
 
 # -------------------------------------------------------------------
