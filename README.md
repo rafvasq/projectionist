@@ -5,8 +5,6 @@
 
 Projectionist is a self-hosted AI concierge and curation layer for your Plex home theater. It aims to eliminate friction and elevate the media server experience by surfacing forgotten content, managing requests via a natural language WhatsApp bot, and keeping your storage clean autonomously.
 
-![Second-Hand Adrenaline row showing American Psycho, Batman Begins, The Battle of Algiers, Bugonia, and Good Time](assets/screenshot.jpg)
-
 ---
 
 ## Features
