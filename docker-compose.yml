@@ -8,6 +8,7 @@ services:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
     environment:
+      - TZ=America/New_York
       - PYTHONUNBUFFERED=1
 
   ollama:
@@ -28,7 +29,7 @@ services:
     build: .
     container_name: projectionist-whatsapp-bot
     restart: unless-stopped
-    entrypoint: ["python", "whatsapp_bot.py"]
+    entrypoint: ["python", "-m", "bot.main"]
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
@@ -45,9 +46,9 @@ services:
     image: ngrok/ngrok:latest
     container_name: projectionist-ngrok
     restart: unless-stopped
-    command: ["http", "whatsapp-bot:5000", "--domain=unholy-stonewall-sarcasm.ngrok-free.dev"]
+    command: ["http", "whatsapp-bot:5000", "--domain=${NGROK_DOMAIN:-}"]
     environment:
-      - NGROK_AUTHTOKEN=3JTjRVykkdOYxZPxCGpI9swAkUd_7jrtGNycF8VzQMzTYSoqg
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
     depends_on:
       - whatsapp-bot
 

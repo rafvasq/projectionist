@@ -1,9 +1,13 @@
 import os
+from pathlib import Path
 import pytest
 import requests
 import yaml
+from core.config import get_project_root
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+CONFIG_PATH = str(get_project_root() / "config.yaml")
+
+pytestmark = pytest.mark.integration
 
 @pytest.fixture(scope="module")
 def overseerr_config():
@@ -21,7 +25,7 @@ def overseerr_config():
 def test_overseerr_search_schema(overseerr_config):
     """
     Validates that a live search to Overseerr returns the expected JSON structure.
-    This ensures our mocks in test_whatsapp_bot.py remain accurate.
+    This ensures our mocks in tests/bot/test_bot.py remain accurate.
     """
     url = overseerr_config["url"]
     headers = overseerr_config["headers"]

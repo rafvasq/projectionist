@@ -1,4 +1,4 @@
-﻿# Config with secrets
+# Config with secrets
 config.yaml
 
 # Python
@@ -11,6 +11,7 @@ __pycache__/
 venv/
 .mypy_cache/
 .ruff_cache/
+.pytest_cache/
 
 # Claude Code
 .claude/
@@ -26,3 +27,6 @@ data/
 
 # Temporary test scripts
 scratch/
+
+# Agent transcripts & swarm artifacts
+.agents/

@@ -2,106 +2,133 @@
 
 ![Tests](https://github.com/rafvasq/projectionist/actions/workflows/test.yml/badge.svg)
 ![Release](https://img.shields.io/github/v/release/rafvasq/projectionist)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 
-Projectionist is a self-hosted AI concierge and curation layer for your Plex home theater. It aims to eliminate friction and elevate the media server experience by surfacing forgotten content, managing requests via a natural language WhatsApp bot, and keeping your storage clean autonomously.
+Projectionist is a self-hosted AI concierge, curation layer, and automated storage manager for Plex.
 
 ---
 
 ## Features
 
-Projectionist is comprised of four main components that work together to maintain and curate your server:
-
-### 1. The Curator (Home Screen Curation)
-Each week, the AI scans your movie library and invents creative themed collections (e.g., *"Chasing Glory, Counting Scars"* or *"Best Laid Plans..."*), picking films that fit the theme and pinning them to your Plex home screen.
-- **Fresh every week**: Previous collections are deleted and new ones are created.
-- **No repeats**: A cooldown ensures the same films aren't constantly pushed.
-
-### 2. The Concierge (WhatsApp Bot)
-A Flask-based WhatsApp bot (powered by Twilio and Overseerr) that allows users to request movies and shows conversationally.
-- **Natural Language Parsing**: Ask for "the movie with the guy who has scissors for hands" and it will resolve the intent to *Edward Scissorhands*.
-- **Letterboxd Integration**: Paste a Letterboxd list URL directly into the chat to bulk-request all movies on the list.
-- **Proactive Notifications**: Notifies users automatically when their requested media is downloaded and available on Plex.
-
-### 3. The Promoter (Weekly Digest)
-A scheduled task that sends out a "Weekly Plex Digest" on WhatsApp, highlighting recently added movies and throwing in a few random "From the Vault" recommendations to encourage watching older downloads.
-
-### 4. The Janitor (Deletion Engine)
-Keeps your hard drives from filling up. It scans for movies that are older than a set number of days and haven't been watched recently, then uses Radarr to delete them. Respects a "Keep Forever" tag for your permanent library.
+- **WhatsApp Bot & Requests**: Request movies and TV shows conversationally using natural language. Paste Letterboxd list or movie links to batch request titles and optionally create Plex collections tagged "Keep Forever". Tracks download progress and notifies users when requested items are ready on Plex.
+- **Automated Clean Up & Leaving Soon**: Automatically prunes unwatched movies via Radarr once they exceed a configured age threshold. Protects tagged titles, tracked collections, and recently watched media. Pins a dynamic "Leaving Soon" collection to Plex prior to deletion and dispatches deletion summaries and failure alerts to WhatsApp.
+- **AI Themed Collections**: Generates creative, themed collections from unwatched library titles and pins them to your Plex home screen. Cooldown tracking ensures films are not repeated across consecutive runs.
+- **Weekly Digest**: Sends a scheduled WhatsApp digest showcasing newly added media alongside recommendations surfaced from your collection.
 
 ---
 
 ## Requirements
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (recommended for easy deployment)
-- A Plex server
-- An AI provider (Gemini or Ollama)
-- Overseerr & Radarr (if using the request and deletion features)
-- Twilio Account (if using the WhatsApp bot)
+- Plex Media Server
+- Gemini or Ollama
+- Overseerr & Radarr
+- Twilio
+- Docker
 
 ---
 
 ## Setup
 
-### 1. Get the files
-
-Download the compose and config files:
+### 1. Download Files
 
 ```bash
-curl -LO https://github.com/rafvasq/projectionist/releases/latest/download/docker-compose.yml
-curl -LO https://github.com/rafvasq/projectionist/releases/latest/download/config.example.yaml
+curl -LO https://raw.githubusercontent.com/rafvasq/projectionist/main/docker-compose.yml
+curl -LO https://raw.githubusercontent.com/rafvasq/projectionist/main/config.example.yaml
 cp config.example.yaml config.yaml
 ```
 
-### 2. Edit config.yaml
+### 2. Configure `config.yaml`
 
-Fill in your Plex URL and token. To find your Plex token, follow [this guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/). 
-Fill in the API keys for Gemini, Overseerr, Twilio, and Radarr depending on which features you want to use.
+```yaml
+plex:
+  url: "http://localhost:32400"
+  token: "<plex-token>"
+  library: "Movies"
 
-### 3. Start
+ai:
+  provider: gemini
+  model: "gemini-3.5-flash-lite"
+  api_key: "<gemini-api-key>"
 
-**Gemini** (no GPU required):
+whatsapp:
+  enabled: true
+  allowed_numbers:
+    - "whatsapp:<your-number>"
+  twilio_account_sid: "<twilio-account-sid>"
+  twilio_auth_token: "<twilio-auth-token>"
+  twilio_phone_number: "whatsapp:<twilio-phone-number>"
 
-```bash
-docker-compose up -d
+overseerr:
+  url: "http://localhost:5055"
+  api_key: "<overseerr-api-key>"
+
+radarr:
+  url: "http://localhost:7878"
+  api_key: "<radarr-api-key>"
+
+deletion:
+  enabled: true
+  dry_run: true
+  max_age_days: 120
+  protect_tag: "Keep Forever"
+  leaving_soon_row: true
+  leaving_soon_limit: 25
 ```
 
-**Ollama** (local, self-hosted):
+### 3. Run
 
 ```bash
-docker-compose --profile ollama up -d
+docker compose up -d
 ```
 
-Projectionist's scheduled jobs (curator, digest) will run on the configured cron schedule. The WhatsApp bot runs continuously in the background.
-
-### Viewing logs
+For local LLM inference via Ollama:
 
 ```bash
-docker-compose logs -f projectionist
+docker compose --profile ollama up -d
+docker compose exec ollama ollama pull llama3
 ```
 
 ---
 
-## Configuration
+## Webhooks
 
-See `config.example.yaml` for a full list of configuration options, including settings for the WhatsApp bot, deletion engine thresholds, and AI model choices.
+- **Twilio WhatsApp**: Point webhook URL to `https://<domain>/whatsapp` (HTTP POST).
+- **Overseerr**: Under Settings > Notifications > Webhook, point webhook URL to `https://<domain>/overseerr` and enable **Media Available**.
 
 ---
 
-## AI providers
+## CLI Usage
 
-### Gemini (default)
+Jobs can be executed directly from the command line:
 
-No GPU required. The free tier of `gemini-3.5-flash-lite` handles a typical home library easily.
+```bash
+# Clean up expired media
+python -m jobs.cleaner [--dry-run | --no-dry-run]
 
-1. Get an API key at [aistudio.google.com](https://aistudio.google.com).
-2. In `config.yaml`, set `provider: gemini` and fill in your `api_key` and `model`.
+# Generate AI collections and sync tracked collections
+python -m jobs.curator
 
-### Ollama (local, self-hosted)
+# Send weekly digest
+python -m jobs.digest
 
-No API costs, no data leaves your network. 7B–9B parameter models work well (`llama3`, `mistral`). Ollama runs as a sidecar in Docker — not exposed outside your machine.
+# Run WhatsApp bot server
+python -m bot.main
+```
 
-GPU support requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+---
 
-1. In `config.yaml`, set `provider: ollama` and fill in the `model` and `base_url` under `# Ollama`.
-2. Start with the Ollama profile: `docker-compose --profile ollama up -d`
-3. Pull a model: `docker-compose exec ollama ollama pull llama3`
+## Development
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+python -m pytest tests/ -v
+```
+
+---
+
+## License
+
+MIT

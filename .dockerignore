@@ -1,0 +1,24 @@
+# Secrets and configuration
+config.yaml
+*.env
+
+# Local state data
+data/
+
+# Python cache & virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+
+# Git & Agent artifacts
+.git/
+.agents/
+scratch/
+.claude/

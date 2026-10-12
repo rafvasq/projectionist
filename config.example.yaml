@@ -4,7 +4,6 @@ plex:
   # url: "http://host.docker.internal:32400"
   token: ""
   library: "Movies"
-  tv_library: "TV Shows"
 
 ai:
   provider: gemini        # gemini | ollama
@@ -32,6 +31,10 @@ whatsapp:
   twilio_account_sid: ""
   twilio_auth_token: ""
   twilio_phone_number: ""
+  # Optional Twilio Content Template SIDs:
+  # availability_template_sid: ""
+  # digest_template_sid: ""
+  # cleaner_template_sid: ""
 
 overseerr:
   url: "http://192.168.1.X:5055"
@@ -46,3 +49,5 @@ deletion:
   dry_run: true
   max_age_days: 120
   protect_tag: "Keep Forever"
+  leaving_soon_row: true    # Maintain a randomized 'Leaving Soon' collection in Plex
+  leaving_soon_limit: 25   # Max movies in the row per refresh (0 or omit for all)

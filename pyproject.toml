@@ -1,0 +1,9 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["scratch", ".venv", ".git", "data"]
+python_files = ["test_*.py"]
+addopts = "-m 'not integration and not live_llm'"
+markers = [
+    "integration: tests that interact with external live services like Overseerr",
+    "live_llm: tests that call live external LLM APIs",
+]
