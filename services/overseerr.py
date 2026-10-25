@@ -8,6 +8,7 @@ metadata detail retrieval, and media request submissions with explicit timeouts.
 from __future__ import annotations
 
 import logging
+import urllib.parse
 from typing import Any, Optional, Union
 import requests
 
@@ -84,7 +85,8 @@ class OverseerrService:
         try:
             resp = requests.get(
                 endpoint,
-                params={"query": clean_query},
+                # Overseerr rejects '+' for spaces; it requires RFC 3986 percent-encoding.
+                params=urllib.parse.urlencode({"query": clean_query}, quote_via=urllib.parse.quote),
                 headers=self._headers,
                 timeout=self.timeout,
             )

@@ -93,7 +93,7 @@ def test_overseerr_search_success_filters_non_media(mock_get):
 
     mock_get.assert_called_once_with(
         "http://fake-host:5055/api/v1/search",
-        params={"query": "Inception"},
+        params="query=Inception",
         headers={"X-Api-Key": "secret"},
         timeout=8.0,
     )
@@ -664,3 +664,13 @@ def test_process_letterboxd_collection_flow(tmp_path):
     mock_plex.add_label.assert_called_once_with([101], "Keep Forever")
     mock_overseerr.request_media.assert_called_once_with("movie", 1002)
     mock_notifier.send_message.assert_called_once()
+
+
+@patch("requests.get")
+def test_overseerr_search_percent_encodes_query(mock_get):
+    mock_get.return_value = MagicMock(status_code=200, json=lambda: {"results": []})
+
+    svc = OverseerrService("http://fake-host:5055", "secret")
+    svc.search("Prey for Rock & Roll")
+
+    assert mock_get.call_args.kwargs["params"] == "query=Prey%20for%20Rock%20%26%20Roll"
