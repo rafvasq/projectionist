@@ -37,9 +37,6 @@ services:
       - "5000:5000"
     environment:
       - TZ=America/New_York
-      - PLEX_URL=${PLEX_URL}
-      - PLEX_TOKEN=${PLEX_TOKEN}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - PYTHONUNBUFFERED=1
 
   ngrok:
