@@ -281,3 +281,68 @@ def test_plex_client_caching_and_indexing():
         assert len(fetched_with_missing) == 1
         assert fetched_with_missing[0].title == "Movie B"
 
+
+
+# ==============================================================================
+# Watchlist removal
+# ==============================================================================
+
+class _Guid:
+    def __init__(self, id):
+        self.id = id
+
+
+class _WatchItem:
+    def __init__(self, tmdb, type="movie"):
+        self.type, self.guids = type, [_Guid("imdb://tt1"), _Guid(f"tmdb://{tmdb}")]
+
+
+class _FakeAccount:
+    """A Plex.tv account whose watchlist can refuse to let go of an item."""
+
+    def __init__(self, tmdb_ids, sticky=(), fail=()):
+        self.items = {t: _WatchItem(t) for t in tmdb_ids}
+        self.items[9999] = _WatchItem(9999, type="show")
+        self.sticky, self.fail = set(sticky), set(fail)
+
+    def watchlist(self):
+        return list(self.items.values())
+
+    def onWatchlist(self, item):
+        return any(i is item for i in self.items.values())
+
+    def removeFromWatchlist(self, item):
+        tmdb = next(t for t, i in self.items.items() if i is item)
+        if tmdb in self.fail:
+            raise RuntimeError("plex.tv said no")
+        if tmdb not in self.sticky:
+            del self.items[tmdb]
+
+
+def _client_with(account):
+    client = PlexClient("http://localhost:32400", "token")
+    client._server = MagicMock()
+    client._server.myPlexAccount.return_value = account
+    return client
+
+
+def test_remove_from_watchlist_removes_only_listed_movies_and_verifies():
+    account = _FakeAccount([1, 2, 3])
+    assert _client_with(account).remove_from_watchlist({1: "Heat", 3: "Alien", 4: "Not On It"}) == []
+    assert set(account.items) == {2, 9999}
+
+
+def test_remove_from_watchlist_reports_failures():
+    account = _FakeAccount([1, 2, 3], sticky=[1], fail=[2])
+    problems = _client_with(account).remove_from_watchlist({1: "Heat", 2: "Ronin", 3: "Alien"})
+    assert "Heat: still on the watchlist after removal" in problems
+    assert any(p.startswith("Ronin: not removed from the watchlist") for p in problems)
+    assert len(problems) == 2
+
+
+def test_remove_from_watchlist_reports_an_unreachable_account():
+    client = PlexClient("http://localhost:32400", "token")
+    client._server = MagicMock()
+    client._server.myPlexAccount.side_effect = RuntimeError("no network")
+    assert _client_with(_FakeAccount([])).remove_from_watchlist({}) == []
+    assert client.remove_from_watchlist({1: "Heat"})[0].startswith("could not read the Plex watchlist")

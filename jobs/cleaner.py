@@ -155,8 +155,8 @@ def run_cleaner(
     3. Reconcile the deletion queue (data/flagged.json): new flags are stamped, movies that
        no longer match drop off. Flagging deletes nothing, so it also happens in dry-run.
     4. Delete queued movies whose grace window has passed, oldest first, at most
-       `deletion.max_deletions_per_run` per run. Each movie Radarr deletes is also cleared
-       from Overseerr (its requests and the watchlist entry) so it cannot be re-requested.
+       `deletion.max_deletions_per_run` per run. Each movie Radarr deletes also has its
+       Overseerr requests cleared and is taken off the Plex watchlist, so it cannot be re-requested.
     5. Refresh the Leaving Soon row and send one summary (plus a failure alert if needed).
     """
     if cfg is None:
@@ -296,10 +296,15 @@ def run_cleaner(
         try:
             overseerr = overseerr or OverseerrService.from_config(cfg)
             if overseerr.is_configured:
-                cleanup_issues = overseerr.forget_movies(deleted_tmdb)
+                cleanup_issues += overseerr.clear_requests(deleted_tmdb)
         except Exception as exc:
             logger.error("Overseerr cleanup failed: %s", exc)
-            cleanup_issues = [f"Overseerr cleanup failed: {exc}"]
+            cleanup_issues.append(f"Overseerr cleanup failed: {exc}")
+        try:
+            cleanup_issues += plex.remove_from_watchlist(deleted_tmdb)
+        except Exception as exc:
+            logger.error("Watchlist cleanup failed: %s", exc)
+            cleanup_issues.append(f"Watchlist cleanup failed: {exc}")
     refresh_leaving_soon_row(plex, queue, by_key, del_cfg)
 
     # 5. Immediate WhatsApp reporting & failure alerting
@@ -335,7 +340,7 @@ def run_cleaner(
                 )
             if cleanup_issues:
                 parts.append(
-                    "Removed, but the Overseerr cleanup was incomplete:\n"
+                    "Removed, but cleaning up requests and the watchlist was incomplete:\n"
                     + "\n".join([f"- {i}" for i in cleanup_issues])
                 )
             notifier.send_alert("\n\n".join(parts))

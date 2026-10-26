@@ -267,6 +267,49 @@ class PlexClient:
                 logger.warning("Could not remove label '%s' from item %s: %s", label, item, exc)
         return changed
 
+    @staticmethod
+    def _watchlist_by_tmdb(account: Any) -> dict[int, Any]:
+        """Movies on the account's Plex watchlist, keyed by TMDB id."""
+        found: dict[int, Any] = {}
+        for item in account.watchlist():
+            if getattr(item, "type", None) != "movie":
+                continue
+            for guid in getattr(item, "guids", None) or []:
+                if guid.id.startswith("tmdb://"):
+                    found[int(guid.id.split("//", 1)[1])] = item
+        return found
+
+    def remove_from_watchlist(self, titles: dict[int, str]) -> list[str]:
+        """
+        Take movies (TMDB id -> title) off the owner's Plex watchlist, then check each one is
+        really gone. Movies not on the watchlist are skipped. Returns problems; empty when verified.
+        Finding the movies reads the whole watchlist, which takes about a minute for 175 movies.
+        """
+        try:
+            account = self.server.myPlexAccount()
+            on_list = self._watchlist_by_tmdb(account)
+        except Exception as exc:
+            logger.error("Could not read the Plex watchlist: %s", exc)
+            return [f"could not read the Plex watchlist: {exc}"]
+
+        problems: list[str] = []
+        removed: dict[int, str] = {}
+        for tmdb_id, title in titles.items():
+            if tmdb_id not in on_list:
+                continue
+            try:
+                account.removeFromWatchlist(on_list[tmdb_id])
+                removed[tmdb_id] = title
+            except Exception as exc:
+                problems.append(f"{title}: not removed from the watchlist ({exc})")
+
+        # Re-check only the movies just removed: reading ids for the whole list is slow (a call per item).
+        try:
+            still_there = [title for t, title in removed.items() if account.onWatchlist(on_list[t])]
+        except Exception as exc:
+            return problems + [f"could not re-check the watchlist: {exc}"]
+        return problems + [f"{title}: still on the watchlist after removal" for title in still_there]
+
     def _fetch_items_by_keys(self, library: Any, keys: list[int]) -> list[Any]:
         """Bulk-fetch Plex media objects by ratingKey using cache dictionary."""
         lib_name = library.title

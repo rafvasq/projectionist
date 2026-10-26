@@ -1,4 +1,4 @@
-"""Tests for the Overseerr cleanup methods (requests and watchlist) against a fake server."""
+"""Tests for clearing a deleted movie's Overseerr requests, against a fake server."""
 
 from __future__ import annotations
 
@@ -18,14 +18,12 @@ class Resp:
 
 
 class FakeSeerr:
-    """Just enough of the API: movie details, request deletion, and a paged watchlist."""
+    """Just enough of the API: movie details and request deletion."""
 
-    def __init__(self, requests_by_tmdb=None, watchlist=(), sticky=(), broken=()):
+    def __init__(self, requests_by_tmdb=None, broken=()):
         self.requests_by_tmdb = requests_by_tmdb or {}
-        self.watchlist = list(watchlist)
-        self.sticky = set(sticky)       # watchlist entries that DELETE reports as removed but keeps
         self.broken = set(broken)       # paths that answer 500
-        self.deleted_requests, self.removed_from_watchlist = [], []
+        self.deleted_requests = []
 
     def __call__(self, method, url, **kwargs):
         path = url.split("/api/v1", 1)[1]
@@ -37,47 +35,24 @@ class FakeSeerr:
         if method == "DELETE" and path.startswith("/request/"):
             self.deleted_requests.append(int(path.rsplit("/", 1)[1]))
             return Resp(204)
-        if method == "GET" and path == "/discover/watchlist":
-            page = kwargs["params"]["page"]
-            chunk = self.watchlist[(page - 1) * 2: page * 2]
-            return Resp(200, {"totalPages": max(1, -(-len(self.watchlist) // 2)),
-                              "results": [{"mediaType": "movie", "tmdbId": t} for t in chunk]})
-        if method == "DELETE" and path.startswith("/watchlist/"):
-            tmdb = int(path.rsplit("/", 1)[1])
-            assert kwargs["params"] == {"mediaType": "movie"}
-            self.removed_from_watchlist.append(tmdb)
-            if tmdb not in self.sticky:
-                self.watchlist.remove(tmdb)
-            return Resp(204)
         raise AssertionError(f"unexpected call {method} {path}")
-
-
-def service():
-    return OverseerrService(url="http://seerr:5055", api_key="key")
 
 
 def run(fake, titles):
     with patch("services.overseerr.requests.request", side_effect=fake):
-        return service().forget_movies(titles)
+        return OverseerrService(url="http://seerr:5055", api_key="key").clear_requests(titles)
 
 
-def test_clears_requests_and_watchlist_entries_across_pages():
-    fake = FakeSeerr(requests_by_tmdb={1: [10, 11], 3: [12]}, watchlist=[1, 2, 3, 4, 5])
-    assert run(fake, {1: "Heat", 3: "Alien"}) == []
+def test_deletes_every_request_for_each_movie():
+    fake = FakeSeerr(requests_by_tmdb={1: [10, 11], 3: [12]})
+    assert run(fake, {1: "Heat", 2: "Alien", 3: "Ronin"}) == []
     assert fake.deleted_requests == [10, 11, 12]
-    assert fake.removed_from_watchlist == [1, 3]
-    assert fake.watchlist == [2, 4, 5]
 
 
-def test_nothing_to_clear_does_nothing():
-    fake = FakeSeerr(watchlist=[9])
+def test_a_movie_with_no_requests_needs_nothing():
+    fake = FakeSeerr()
     assert run(fake, {1: "Heat"}) == []
-    assert fake.deleted_requests == [] and fake.removed_from_watchlist == []
-
-
-def test_reports_a_watchlist_entry_that_does_not_go_away():
-    fake = FakeSeerr(watchlist=[1], sticky=[1])
-    assert run(fake, {1: "Heat"}) == ["Heat: still on the watchlist after removal"]
+    assert fake.deleted_requests == []
 
 
 def test_reports_a_request_that_cannot_be_deleted():
@@ -86,15 +61,8 @@ def test_reports_a_request_that_cannot_be_deleted():
     assert run(fake, {1: "Heat"}) == ["Heat: request 10 not deleted"]
 
 
-def test_unreadable_watchlist_is_reported_but_requests_are_still_cleared():
-    fake = FakeSeerr(requests_by_tmdb={1: [10]}, broken=["/discover/watchlist"])
-    assert run(fake, {1: "Heat"}) == ["could not read the watchlist"]
-    assert fake.deleted_requests == [10]
-
-
 def test_unreadable_movie_details_are_reported():
-    fake = FakeSeerr(broken=["/movie/1"])
-    assert run(fake, {1: "Heat"}) == ["Heat: could not read its requests"]
+    assert run(FakeSeerr(broken=["/movie/1"]), {1: "Heat"}) == ["Heat: could not read its requests"]
 
 
 def test_network_errors_do_not_raise():
@@ -102,8 +70,6 @@ def test_network_errors_do_not_raise():
         raise requests.ConnectionError("down")
 
     with patch("services.overseerr.requests.request", side_effect=boom):
-        svc = service()
+        svc = OverseerrService(url="http://seerr:5055", api_key="key")
         assert svc.delete_request(5) is False
-        assert svc.watchlist_tmdb_ids() is None
-        assert svc.remove_from_watchlist(1) is False
         assert svc.request_ids(1) is None

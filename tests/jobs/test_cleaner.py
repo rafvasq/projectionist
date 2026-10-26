@@ -56,6 +56,7 @@ def queue(*movies, days_ago=40):
 def env(*movies):
     plex = MagicMock()
     plex.fetch_movies.return_value = list(movies)
+    plex.remove_from_watchlist.return_value = []
     radarr = MagicMock()
     radarr.is_configured = True
     radarr.get_movie_by_tmdb_id.return_value = {"id": 88}
@@ -168,11 +169,11 @@ def test_due_movie_is_deleted_and_leaves_the_queue(base_config):
 def seerr(issues=()):
     service = MagicMock()
     service.is_configured = True
-    service.forget_movies.return_value = list(issues)
+    service.clear_requests.return_value = list(issues)
     return service
 
 
-def test_deleted_movies_are_cleared_from_overseerr(base_config):
+def test_deleted_movies_are_cleared_from_overseerr_and_the_watchlist(base_config):
     movie = idle_movie(title="Old Classic", tmdb_id=500)
     queue(movie)
     plex, radarr, notifier = env(movie)
@@ -180,7 +181,8 @@ def test_deleted_movies_are_cleared_from_overseerr(base_config):
 
     result = cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier, overseerr=service)
 
-    service.forget_movies.assert_called_once_with({500: "Old Classic"})
+    service.clear_requests.assert_called_once_with({500: "Old Classic"})
+    plex.remove_from_watchlist.assert_called_once_with({500: "Old Classic"})
     assert result["cleanup_issues"] == []
     notifier.send_alert.assert_not_called()
 
@@ -195,32 +197,52 @@ def test_nothing_is_cleared_in_dry_run_or_when_radarr_fails(base_config):
     radarr.delete_movie.return_value = False
     cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier, overseerr=service)
 
-    service.forget_movies.assert_not_called()
+    service.clear_requests.assert_not_called()
+    plex.remove_from_watchlist.assert_not_called()
 
 
-def test_incomplete_overseerr_cleanup_alerts_admins_without_undoing_the_deletion(base_config):
+def test_incomplete_cleanup_alerts_admins_without_undoing_the_deletion(base_config):
     movie = idle_movie(title="Old Classic", tmdb_id=500)
     queue(movie)
     plex, radarr, notifier = env(movie)
+    plex.remove_from_watchlist.return_value = ["Old Classic: still on the watchlist after removal"]
 
     result = cleaner.run(
         cfg=base_config, plex=plex, radarr=radarr, notifier=notifier,
-        overseerr=seerr(["Old Classic: still on the watchlist after removal"]),
+        overseerr=seerr(["Old Classic: request 12 not deleted"]),
     )
 
     assert result["deleted"] == ["Old Classic"] and load_flagged() == {}
-    assert "Overseerr cleanup was incomplete" in alert_text(notifier)
-    assert "still on the watchlist" in alert_text(notifier)
+    alert = alert_text(notifier)
+    assert "cleaning up requests and the watchlist was incomplete" in alert
+    assert "request 12 not deleted" in alert and "still on the watchlist" in alert
 
 
-def test_unconfigured_overseerr_is_skipped(base_config):
+def test_a_crashing_cleanup_step_does_not_stop_the_run(base_config):
+    movie = idle_movie(title="Old Classic", tmdb_id=500)
+    queue(movie)
+    plex, radarr, notifier = env(movie)
+    service = seerr()
+    service.clear_requests.side_effect = RuntimeError("seerr down")
+    plex.remove_from_watchlist.side_effect = RuntimeError("plex.tv down")
+
+    result = cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier, overseerr=service)
+
+    assert result["deleted"] == ["Old Classic"]
+    assert result["cleanup_issues"] == ["Overseerr cleanup failed: seerr down", "Watchlist cleanup failed: plex.tv down"]
+
+
+def test_unconfigured_overseerr_still_cleans_the_watchlist(base_config):
     movie = idle_movie(tmdb_id=500)
     queue(movie)
     plex, radarr, notifier = env(movie)
     service = seerr()
     service.is_configured = False
+
     cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier, overseerr=service)
-    service.forget_movies.assert_not_called()
+
+    service.clear_requests.assert_not_called()
+    plex.remove_from_watchlist.assert_called_once()
 
 
 def test_dry_run_reports_but_deletes_nothing_and_keeps_the_queue(base_config):

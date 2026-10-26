@@ -327,7 +327,7 @@ class OverseerrService:
             return False
 
     # ------------------------------------------------------------------
-    # Cleanup after a movie has been deleted elsewhere
+    # Request cleanup after a movie has been deleted elsewhere
     # ------------------------------------------------------------------
 
     def _call(self, method: str, path: str, **kwargs: Any) -> Optional[requests.Response]:
@@ -353,37 +353,16 @@ class OverseerrService:
         resp = self._call("DELETE", f"/request/{int(request_id)}")
         return resp is not None and resp.status_code in (200, 204, 404)
 
-    def watchlist_tmdb_ids(self, max_pages: int = 50) -> Optional[set[int]]:
-        """TMDB ids of movies on the API-key user's Plex watchlist, or None on an error."""
-        found: set[int] = set()
-        page, total = 1, 1
-        while page <= total and page <= max_pages:
-            resp = self._call("GET", "/discover/watchlist", params={"page": page})
-            if resp is None or resp.status_code != 200:
-                return None
-            data = resp.json()
-            total = data.get("totalPages", 1)
-            found |= {i["tmdbId"] for i in data.get("results", []) if i.get("mediaType") == "movie" and i.get("tmdbId")}
-            page += 1
-        return found
-
-    def remove_from_watchlist(self, tmdb_id: int) -> bool:
-        """Remove a movie from the watchlist. Already gone counts as success."""
-        resp = self._call("DELETE", f"/watchlist/{int(tmdb_id)}", params={"mediaType": "movie"})
-        return resp is not None and resp.status_code in (200, 204, 404)
-
-    def forget_movies(self, titles: dict[int, str]) -> list[str]:
+    def clear_requests(self, titles: dict[int, str]) -> list[str]:
         """
-        Once movies are deleted elsewhere, delete their Overseerr requests and take them off the
-        watchlist so they cannot be re-requested. `titles` maps TMDB id to title.
-        Returns a list of problems (empty when everything was cleared and verified).
+        Once movies are deleted elsewhere, delete their Overseerr requests so nothing lingers
+        and they can be requested again. `titles` maps TMDB id to title.
+        Returns a list of problems (empty when everything was cleared).
+
+        Watchlist entries are not handled here: Overseerr only knows its own copy of the
+        watchlist, so removing them goes through Plex (PlexClient.remove_from_watchlist).
         """
         problems: list[str] = []
-        on_watchlist = self.watchlist_tmdb_ids()
-        if on_watchlist is None:
-            problems.append("could not read the watchlist")
-            on_watchlist = set()
-
         for tmdb_id, title in titles.items():
             ids = self.request_ids(tmdb_id)
             if ids is None:
@@ -391,13 +370,4 @@ class OverseerrService:
             for request_id in ids or []:
                 if not self.delete_request(request_id):
                     problems.append(f"{title}: request {request_id} not deleted")
-            if tmdb_id in on_watchlist and not self.remove_from_watchlist(tmdb_id):
-                problems.append(f"{title}: not removed from the watchlist")
-
-        removed = [t for t in titles if t in on_watchlist]
-        if removed:
-            after = self.watchlist_tmdb_ids()
-            for tmdb_id in removed:
-                if after is not None and tmdb_id in after:
-                    problems.append(f"{titles[tmdb_id]}: still on the watchlist after removal")
         return problems
