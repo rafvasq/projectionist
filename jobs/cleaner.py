@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from core.config import load_config
-from core.flagged import due_keys, reconcile
+from core.flagged import due_keys, reconcile, sort_key
 from core.notifier import WhatsAppNotifier
 from core.plex import PlexClient
 from core.retention import flag_movies
@@ -106,24 +106,25 @@ def format_template_summary(
     flagged: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Format condensed single-variable text for the Meta WhatsApp Content API template."""
-    summary_text = ""
+    parts = []
     if dry_run:
-        summary_text += "⚠️ DRY RUN (No files deleted)\n\n"
-
-    summary_text += f"✅ Removed ({len(deleted_titles)}): {', '.join(deleted_titles)[:100]}"
+        parts.append("⚠️ DRY RUN (No files deleted)")
+    if deleted_titles or not flagged:
+        parts.append(f"✅ Removed ({len(deleted_titles)}): {', '.join(deleted_titles)[:100]}")
     if failed_titles:
-        summary_text += f"\n❌ Failed ({len(failed_titles)}): {', '.join(failed_titles)[:100]}"
+        parts.append(f"❌ Failed ({len(failed_titles)}): {', '.join(failed_titles)[:100]}")
     if flagged:
-        titles = ", ".join(_entry_title(e) for e in flagged)[:100]
-        summary_text += f" • 🆕 Flagged ({len(flagged)}): {titles}"
-    return summary_text
+        shown = ", ".join(_entry_title(e) for e in flagged[:3])
+        more = f" +{len(flagged) - 3} more" if len(flagged) > 3 else ""
+        parts.append(f"🆕 Flagged ({len(flagged)}): {shown}{more}")
+    return " • ".join(parts)
 
 
 def refresh_leaving_soon_row(plex: PlexClient, queue: dict[str, Any], by_key: dict[str, Any], del_cfg: dict[str, Any]) -> None:
     """Keep the Plex 'Leaving Soon' row in step with the deletion queue, soonest first."""
     if not del_cfg.get("leaving_soon_row", True):
         return
-    keys = [int(k) for k in sorted(queue, key=lambda k: queue[k]["flagged_at"]) if k in by_key]
+    keys = [int(k) for k in sorted(queue, key=lambda k: sort_key(queue[k])) if k in by_key]
     limit = del_cfg.get("leaving_soon_limit", DEFAULT_LEAVING_SOON_LIMIT)
     if limit and limit > 0:
         keys = keys[:limit]

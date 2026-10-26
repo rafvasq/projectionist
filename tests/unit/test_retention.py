@@ -112,6 +112,7 @@ def test_rules_use_the_first_match_and_explain_why():
     assert (flags[1].rule, flags[1].reason) == ("forgotten", "last watched 400 days ago")
     assert (flags[2].rule, flags[2].reason) == ("unwatched", "added 100 days ago, never watched")
     assert (flags[3].rule, flags[3].reason) == ("window", "idle 70 days")
+    assert flags[3].idle_days == 70
 
 
 def test_never_watched_counts_as_infinitely_long_ago():

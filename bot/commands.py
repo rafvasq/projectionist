@@ -15,7 +15,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from core.flagged import deletion_date, dequeue
+from core.flagged import deletion_date, dequeue, sort_key
 from core.retention import flag_movies
 from core.storage import load_flagged, load_tracked_collections, load_whatsapp_state, save_whatsapp_state
 
@@ -238,7 +238,7 @@ def cmd_leaving(ctx: CommandContext, args: str) -> str:
         return f"❌ Problem with the deletion rules in config: {exc}"
     queue = load_flagged()
     in_library = {str(m.ratingKey) for m in movies}
-    queued = sorted((e for k, e in queue.items() if k in in_library), key=lambda e: e["flagged_at"])
+    queued = sorted((e for k, e in queue.items() if k in in_library), key=sort_key)
     unqueued = sum(1 for f in flags if str(f.movie.ratingKey) not in queue)
     if not queued and not unqueued:
         return f"✅ Nothing is flagged for deletion right now.\n\n{mode}"

@@ -118,6 +118,13 @@ def test_first_run_flags_but_deletes_nothing(base_config):
     kwargs = notifier.send_broadcast.call_args.kwargs
     assert "Flagged (1)" in kwargs["body"] and "30 days" in kwargs["body"] and "Old Classic" in kwargs["body"]
     assert "Flagged (1)" in kwargs["content_variables"]["1"]
+    assert "Removed" not in kwargs["content_variables"]["1"]
+
+
+def test_template_summary_names_a_few_titles_and_counts_the_rest():
+    flagged = [{"title": f"Movie {i}", "year": 2000, "rule": "idle"} for i in range(115)]
+    text = cleaner.format_template_summary([], [], True, flagged=flagged)
+    assert text == "⚠️ DRY RUN (No files deleted) • 🆕 Flagged (115): Movie 0 (2000), Movie 1 (2000), Movie 2 (2000) +112 more"
 
 
 def test_summary_goes_to_admins_only(base_config):

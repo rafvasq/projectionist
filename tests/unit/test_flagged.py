@@ -41,6 +41,23 @@ def test_due_keys_respects_grace_window_and_orders_oldest_first():
     assert deletion_date(queue["d"], 30) == NOW + timedelta(days=1)
 
 
+def test_movies_flagged_together_go_most_idle_first():
+    stamp = NOW.isoformat()
+    queue = {
+        "a": {"flagged_at": stamp, "idle_days": 154},
+        "b": {"flagged_at": stamp, "idle_days": 258},
+        "c": {"flagged_at": stamp, "idle_days": 200},
+        "old": {"flagged_at": (NOW - timedelta(days=90)).isoformat(), "idle_days": 10},
+    }
+    assert due_keys(queue, 0, NOW) == ["old", "b", "c", "a"]    # earlier flag first, then most idle
+
+
+def test_reconcile_records_idle_days():
+    flagged = Flag(make_movie(ratingKey=1, title="Movie 1", year=2000), "idle", "idle 154 days", idle_days=154)
+    new_queue, _ = reconcile([flagged], {}, NOW)
+    assert new_queue["1"]["idle_days"] == 154
+
+
 def test_dequeue_removes_a_saved_entry():
     save_flagged({"7": {"title": "Heat", "flagged_at": NOW.isoformat()}, "8": {"title": "Alien", "flagged_at": NOW.isoformat()}})
     assert dequeue(7) is True

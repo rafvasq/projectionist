@@ -29,6 +29,7 @@ def reconcile(flags: list[Flag], queue: dict[str, Any], now: datetime) -> tuple[
             "tmdb_id": flag.movie.tmdb_id,
             "rule": flag.rule,
             "reason": flag.reason,
+            "idle_days": flag.idle_days,
             "flagged_at": queue.get(key, {}).get("flagged_at") or now.isoformat(),
         }
         fresh[key] = entry
@@ -41,10 +42,15 @@ def deletion_date(entry: dict[str, Any], grace_days: int) -> datetime:
     return datetime.fromisoformat(entry["flagged_at"]) + timedelta(days=grace_days)
 
 
+def sort_key(entry: dict[str, Any]) -> tuple[str, int]:
+    """Deletion order: oldest flag first, and among movies flagged together, the most idle first."""
+    return entry["flagged_at"], -entry.get("idle_days", 0)
+
+
 def due_keys(queue: dict[str, Any], grace_days: int, now: datetime) -> list[str]:
-    """Keys whose grace window has passed, oldest flag first."""
+    """Keys whose grace window has passed, in deletion order."""
     due = [k for k, e in queue.items() if deletion_date(e, grace_days) <= now]
-    return sorted(due, key=lambda k: queue[k]["flagged_at"])
+    return sorted(due, key=lambda k: sort_key(queue[k]))
 
 
 def dequeue(rating_key: Any) -> bool:

@@ -35,6 +35,7 @@ class Flag:
     movie: MovieMeta
     rule: str
     reason: str
+    idle_days: int = 0
 
 
 def _to_utc(dt: Optional[datetime]) -> Optional[datetime]:
@@ -156,6 +157,6 @@ def flag_movies(
             continue
         for name, when in rules:
             if _matches(when, metrics):
-                flags.append(Flag(movie, name, _reason(when, metrics)))
+                flags.append(Flag(movie, name, _reason(when, metrics), int(metrics["idle_days"])))
                 break
     return flags
