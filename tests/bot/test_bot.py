@@ -21,7 +21,6 @@ from bot.handlers import (
 )
 from bot.main import main
 from bot.security import (
-    is_authorized_number,
     twilio_auth_required,
     validate_twilio_request,
 )
@@ -86,21 +85,6 @@ def client(test_app):
 # ==============================================================================
 # Security Tests
 # ==============================================================================
-
-def test_is_authorized_number():
-    allowed = ["+15551234567", "whatsapp:+15551112222"]
-
-    # Authorized with or without prefix
-    assert is_authorized_number("+15551234567", allowed) is True
-    assert is_authorized_number("whatsapp:+15551234567", allowed) is True
-    assert is_authorized_number("+15551112222", allowed) is True
-
-    # Unauthorized
-    assert is_authorized_number("+19999999999", allowed) is False
-    assert is_authorized_number("", allowed) is False
-    assert is_authorized_number(None, allowed) is False
-    assert is_authorized_number("+15551234567", []) is False
-
 
 def test_validate_twilio_request_bypass_in_test_mode():
     mock_req = MagicMock()

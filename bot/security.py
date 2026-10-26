@@ -1,7 +1,6 @@
 """
 bot/security.py
-Security utilities for Twilio WhatsApp webhooks:
-- Phone number normalization & authorization checking
+Security utilities for the bot's webhooks (who may use the bot lives in core/roles.py):
 - Twilio HMAC-SHA1 signature verification (fails closed when no auth token is configured)
 - Shared-secret verification for the Overseerr webhook
 - Route decorators enforcing both
@@ -12,37 +11,11 @@ from __future__ import annotations
 import functools
 import hmac
 import logging
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from twilio.request_validator import RequestValidator
-from core.notifier import normalize_whatsapp_number
 
 logger = logging.getLogger(__name__)
-
-
-def is_authorized_number(
-    sender: Optional[Union[str, int]],
-    allowed_numbers: Optional[list[str]] = None,
-) -> bool:
-    """
-    Verify if incoming sender phone number is authorized.
-    Normalizes both sender and allowed numbers to WhatsApp URI format ('whatsapp:+...').
-    Returns False if sender or allowed_numbers is empty/invalid.
-    """
-    if not sender or not allowed_numbers:
-        return False
-
-    norm_sender = normalize_whatsapp_number(sender)
-    if not norm_sender:
-        return False
-
-    norm_allowed = {
-        normalize_whatsapp_number(num)
-        for num in allowed_numbers
-        if normalize_whatsapp_number(num)
-    }
-
-    return norm_sender in norm_allowed
 
 
 def _app_config(key: str, default: Any = None) -> Any:

@@ -13,6 +13,7 @@ from flask import Flask, current_app
 from core.config import load_config
 from core.notifier import WhatsAppNotifier
 from core.plex import PlexClient
+from core.roles import load_users
 from services.overseerr import OverseerrService
 from services.tracker import CollectionTracker
 
@@ -43,6 +44,9 @@ def create_app(
     app.config["TWILIO_AUTH_TOKEN"] = wa_cfg.get("twilio_auth_token")
     app.config["TWILIO_VERIFY_SIGNATURE"] = bool(wa_cfg.get("verify_signature", True))
     app.config["TWILIO_PUBLIC_URL"] = wa_cfg.get("public_url") or None
+
+    # Who may use the bot, and as what (raises ValueError on a bad whatsapp.users entry)
+    app.config["USERS"] = load_users(cfg)
 
     # Configure Overseerr webhook shared secret
     os_cfg = cfg.get("overseerr", {}) if isinstance(cfg, dict) else {}

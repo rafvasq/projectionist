@@ -67,6 +67,7 @@ class WhatsAppNotifier:
         from_number: Optional[str] = None,
         allowed_numbers: Optional[list[str]] = None,
         client: Optional[Any] = None,
+        admin_numbers: Optional[list[str]] = None,
     ) -> None:
         self.account_sid = account_sid
         self.auth_token = auth_token
@@ -76,6 +77,12 @@ class WhatsAppNotifier:
             for n in (allowed_numbers or [])
             if normalize_whatsapp_number(n)
         ]
+        # Admins receive cleaner summaries and alerts; without roles, everyone is an admin.
+        self.admin_numbers = (
+            [normalize_whatsapp_number(n) for n in admin_numbers if normalize_whatsapp_number(n)]
+            if admin_numbers is not None
+            else list(self.allowed_numbers)
+        )
 
         if client is not None:
             self.client = client
@@ -94,12 +101,16 @@ class WhatsAppNotifier:
         if cfg is None:
             from core.config import load_config
             cfg = load_config()
+        from core.roles import ADMIN, load_users, numbers
+
         wa_cfg = cfg.get("whatsapp", {}) if isinstance(cfg, dict) else {}
+        users = load_users(cfg)
         return cls(
             account_sid=wa_cfg.get("twilio_account_sid"),
             auth_token=wa_cfg.get("twilio_auth_token"),
             from_number=wa_cfg.get("twilio_phone_number"),
-            allowed_numbers=wa_cfg.get("allowed_numbers", []),
+            allowed_numbers=numbers(users),
+            admin_numbers=numbers(users, ADMIN),
         )
 
     @property
@@ -218,4 +229,6 @@ class WhatsAppNotifier:
         Send an urgent operational alert (e.g. Radarr deletion failures) to recipients.
         """
         alert_body = f"🚨 *Projectionist Alert*\n\n{body}"
-        return self.send_broadcast(body=alert_body, recipients=recipients)
+        return self.send_broadcast(
+            body=alert_body, recipients=recipients if recipients is not None else self.admin_numbers
+        )

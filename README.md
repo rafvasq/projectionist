@@ -101,7 +101,9 @@ docker compose exec ollama ollama pull llama3
 
 ## WhatsApp Commands
 
-Messages starting with `/` are commands. Everything else is treated as a movie or show to request, or a Letterboxd link.
+Messages starting with `/` are commands, and they are for admins. Everything else is treated as a movie or show to request, or a Letterboxd link.
+
+Roles: by default every number in `allowed_numbers` is an admin. To let family members use the bot without admin power, list them under `whatsapp.users` with `role: user` (see `config.example.yaml`). Users can request films and shows, send Letterboxd film links, and receive new-arrival notices and the weekly digest. Slash commands and Letterboxd list imports are admin-only, and cleaner summaries and alerts go to admins only.
 
 | Command | What it does |
 | --- | --- |

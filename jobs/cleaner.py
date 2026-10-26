@@ -302,6 +302,7 @@ def run_cleaner(
 
             notifier.send_broadcast(
                 body=msg_body,
+                recipients=notifier.admin_numbers,
                 content_sid=template_sid,
                 content_variables=content_vars,
             )

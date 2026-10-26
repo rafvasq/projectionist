@@ -120,6 +120,13 @@ def test_first_run_flags_but_deletes_nothing(base_config):
     assert "Flagged (1)" in kwargs["content_variables"]["1"]
 
 
+def test_summary_goes_to_admins_only(base_config):
+    plex, radarr, notifier = env(idle_movie())
+    notifier.admin_numbers = ["whatsapp:+15551111111"]
+    cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier)
+    assert notifier.send_broadcast.call_args.kwargs["recipients"] == ["whatsapp:+15551111111"]
+
+
 def test_movie_inside_grace_window_is_not_deleted(base_config):
     movie = idle_movie()
     queue(movie, days_ago=10)

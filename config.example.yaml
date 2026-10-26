@@ -26,6 +26,15 @@ schedule:
 
 whatsapp:
   enabled: false
+  # Who may use the bot. Admins can use slash commands and import Letterboxd lists, and get
+  # cleaner summaries and alerts. Users can request films and shows in plain language and
+  # hear about new arrivals and the weekly digest. A missing role means user.
+  # users:
+  #   - number: "whatsapp:+12345678900"
+  #     role: admin
+  #   - number: "whatsapp:+19876543210"
+  #     role: user
+  # Simple setup: every number here is an admin. Ignored when `users` is set.
   allowed_numbers:
     - "whatsapp:+12345678900"
   twilio_account_sid: ""

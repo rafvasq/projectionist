@@ -33,7 +33,8 @@ from services.letterboxd import (
     scrape_letterboxd_list,
 )
 from bot.commands import CommandContext, apply_keep_change, dispatch, parse_command
-from bot.security import is_authorized_number, overseerr_auth_required, twilio_auth_required
+from bot.security import overseerr_auth_required, twilio_auth_required
+from core.roles import ADMIN, numbers, role_of
 
 logger = logging.getLogger(__name__)
 
@@ -142,8 +143,8 @@ def process_search_async(app: Any, sender: str, text: str) -> None:
             notifier.send_message(sender, msg)
 
 
-def handle_letterboxd_url_async(app: Any, url: str, sender: str) -> None:
-    """Handle incoming Letterboxd list or film URL asynchronously."""
+def handle_letterboxd_url_async(app: Any, url: str, sender: str, is_admin: bool = True) -> None:
+    """Handle an incoming Letterboxd list or film URL asynchronously. Lists are admin-only."""
     with app.app_context():
         from bot.app import get_services
         services = get_services()
@@ -154,15 +155,11 @@ def handle_letterboxd_url_async(app: Any, url: str, sender: str) -> None:
             notifier.send_message(sender, "🔍 Scraping Letterboxd... This may take a minute.")
 
         try:
-            # Check if direct list URL
-            if "/list/" in url:
-                list_title, titles = scrape_letterboxd_list(url)
-            else:
-                # Direct film or redirect inspection
+            list_url = url if "/list/" in url else None
+            if list_url is None:
+                # Direct film or redirect inspection (short links can point at either)
                 html, resolved_url = fetch_letterboxd_html(url)
-                if html and "/list/" in resolved_url:
-                    list_title, titles = scrape_letterboxd_list(resolved_url)
-                elif html:
+                if html and "/list/" not in resolved_url:
                     tmdb_id, title = extract_letterboxd_film_metadata(html)
                     if tmdb_id and overseerr:
                         success = overseerr.request_media("movie", int(tmdb_id))
@@ -176,8 +173,13 @@ def handle_letterboxd_url_async(app: Any, url: str, sender: str) -> None:
                     if notifier:
                         notifier.send_message(sender, msg)
                     return
-                else:
-                    list_title, titles = scrape_letterboxd_list(url)
+                list_url = resolved_url if html else url
+
+            if not is_admin:
+                if notifier:
+                    notifier.send_message(sender, "📋 List imports are admin-only. Film links work for everyone.")
+                return
+            list_title, titles = scrape_letterboxd_list(list_url)
 
             if not titles:
                 if notifier:
@@ -255,7 +257,6 @@ def receive_whatsapp():
     services = get_services()
     cfg = services.get("config", {})
     overseerr = services.get("overseerr")
-    allowed = cfg.get("whatsapp", {}).get("allowed_numbers", [])
 
     sender = request.form.get("From", "")
     text = request.form.get("Body", "").strip()
@@ -264,7 +265,8 @@ def receive_whatsapp():
     twiml_resp = MessagingResponse()
 
     # 1. Authorization Verification
-    if not is_authorized_number(sender, allowed):
+    role = role_of(sender, current_app.config.get("USERS", {}))
+    if role is None:
         logger.info("Ignored message from unauthorized number: %s", sender)
         return str(twiml_resp)
 
@@ -278,6 +280,9 @@ def receive_whatsapp():
 
     # 3. Slash Commands (a leading "/" is required, so titles like "Keep the Lights On" never match)
     if parse_command(text):
+        if role != ADMIN:
+            twiml_resp.message("Commands are for admins. Just tell me what you'd like to watch.")
+            return str(twiml_resp)
         state = load_whatsapp_state()
         state[sender] = {"status": "IDLE"}
         save_whatsapp_state(state)
@@ -299,7 +304,7 @@ def receive_whatsapp():
         app_obj = current_app._get_current_object()
         threading.Thread(
             target=handle_letterboxd_url_async,
-            args=(app_obj, url, sender),
+            args=(app_obj, url, sender, role == ADMIN),
             daemon=True,
         ).start()
         return str(twiml_resp)
@@ -525,12 +530,10 @@ def receive_overseerr():
                                 f"downloaded and in your Plex collection!"
                             )
 
-                        # Direct notification to sender if authorized, else broadcast
-                        allowed = cfg.get("whatsapp", {}).get("allowed_numbers", [])
+                        # Progress goes to whoever imported the list; if they are no longer allowed, to admins
+                        users = current_app.config.get("USERS", {})
                         norm_target = normalize_whatsapp_number(target_sender)
-                        norm_allowed = [normalize_whatsapp_number(n) for n in allowed]
-
-                        recipients = [norm_target] if norm_target in norm_allowed else norm_allowed
+                        recipients = [norm_target] if norm_target in users else numbers(users, ADMIN)
                         if notifier:
                             for number in recipients:
                                 notifier.send_message(to=number, body=coll_msg)
