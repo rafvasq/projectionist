@@ -15,8 +15,9 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from core.retention import get_leaving_soon_movies
-from core.storage import load_tracked_collections, load_whatsapp_state, save_whatsapp_state
+from core.flagged import deletion_date, dequeue
+from core.retention import flag_movies
+from core.storage import load_flagged, load_tracked_collections, load_whatsapp_state, save_whatsapp_state
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,10 @@ def _label(movie: Any) -> str:
     return f"{movie.title} ({movie.year})" if getattr(movie, "year", None) else str(movie.title)
 
 
+def _label_entry(entry: dict[str, Any]) -> str:
+    return f"{entry['title']} ({entry['year']})" if entry.get("year") else str(entry["title"])
+
+
 def _protect_labels(movie: Any) -> list[str]:
     return [l for l in (movie.labels or []) if l.strip().lower() in PROTECT_LABELS]
 
@@ -188,7 +193,8 @@ def apply_keep_change(ctx: CommandContext, action: str, rating_key: int, title: 
     try:
         if action == "keep":
             if ctx.plex.add_label([rating_key], KEEP_LABEL):
-                return f"🔒 *{title}* is now tagged Keep Forever."
+                saved = " It's off the deletion queue." if dequeue(rating_key) else ""
+                return f"🔒 *{title}* is now tagged Keep Forever.{saved}"
             return f"❌ Couldn't tag *{title}*. Check the logs."
 
         movies, error = _library(ctx)
@@ -218,22 +224,34 @@ def cmd_leaving(ctx: CommandContext, args: str) -> str:
         return error
 
     del_cfg = (ctx.config or {}).get("deletion", {})
+    grace_days = int(del_cfg.get("grace_days", 30))
     if not del_cfg.get("enabled", False):
         mode = "Cleaner is disabled in config, so nothing will be deleted."
     elif del_cfg.get("dry_run", True):
         mode = "Cleaner is in dry-run mode in config: nothing is actually deleted."
     else:
-        mode = "⚠️ Cleaner is active: these will be deleted on its next run."
+        mode = "⚠️ Cleaner is active: these will be deleted on schedule."
 
-    leaving = get_leaving_soon_movies(movies, ctx.config)
-    if not leaving:
-        return f"✅ Nothing is eligible for deletion right now.\n\n{mode}"
+    try:
+        flags = flag_movies(movies, ctx.config)
+    except ValueError as exc:
+        return f"❌ Problem with the deletion rules in config: {exc}"
+    queue = load_flagged()
+    in_library = {str(m.ratingKey) for m in movies}
+    queued = sorted((e for k, e in queue.items() if k in in_library), key=lambda e: e["flagged_at"])
+    unqueued = sum(1 for f in flags if str(f.movie.ratingKey) not in queue)
+    if not queued and not unqueued:
+        return f"✅ Nothing is flagged for deletion right now.\n\n{mode}"
 
-    leaving.sort(key=lambda m: _normalize(m.title))
-    lines = [f"- {_label(m)}" for m in leaving[:MAX_LISTED]]
-    if len(leaving) > MAX_LISTED:
-        lines.append(f"…and {len(leaving) - MAX_LISTED} more")
-    return f"🧹 *Eligible for deletion ({len(leaving)})*\n" + "\n".join(lines) + f"\n\n{mode}\nUse /keep <title> to protect one."
+    lines = [
+        f"- {_label_entry(e)} - leaves {deletion_date(e, grace_days):%b %d} ({e['reason']})"
+        for e in queued[:MAX_LISTED]
+    ]
+    if len(queued) > MAX_LISTED:
+        lines.append(f"…and {len(queued) - MAX_LISTED} more")
+    if unqueued:
+        lines.append(f"{unqueued} more will be flagged at the next cleaner run.")
+    return f"🧹 *Flagged for deletion ({len(queued)})*\n" + "\n".join(lines) + f"\n\n{mode}\nUse /keep <title> to save one."
 
 
 def cmd_status(ctx: CommandContext, args: str) -> str:
@@ -259,7 +277,7 @@ def cmd_help(ctx: CommandContext, args: str) -> str:
 COMMANDS = {
     "keep": ("/keep <title> [year]", "protect a movie in Plex from cleanup", lambda c, a: _keep_change(c, a, "keep")),
     "unkeep": ("/unkeep <title> [year]", "remove Keep Forever from a movie", lambda c, a: _keep_change(c, a, "unkeep")),
-    "leaving": ("/leaving", "movies the cleaner would delete now", cmd_leaving),
+    "leaving": ("/leaving", "movies flagged for deletion", cmd_leaving),
     "status": ("/status", "download progress of tracked collections", cmd_status),
     "help": ("/help", "show this list", cmd_help),
 }

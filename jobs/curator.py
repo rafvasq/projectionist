@@ -1,7 +1,8 @@
 """
 jobs/curator.py
-AI-curated collection generator, cooldown deduplicator, Leaving Soon row refresher,
+AI-curated collection generator, cooldown deduplicator,
 and tracked collections synchronizer for Projectionist.
+(The Leaving Soon row is maintained by the cleaner from the deletion queue.)
 
 Usage:
     python -m jobs.curator [--config PATH]
@@ -19,7 +20,6 @@ from typing import Any, Optional, Union
 from core.config import load_config
 from core.plex import MovieMeta, PlexClient
 from core.ai import setup_ai_env, curate_collection, ai_session
-from core.retention import get_leaving_soon_movies
 from core.storage import (
     load_cooldown,
     save_cooldown,
@@ -32,8 +32,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_RESULTS = 15
 DEFAULT_COOLDOWN_WEEKS = 3
-DEFAULT_LEAVING_SOON_LIMIT = 25
-COLLECTION_LEAVING_SOON = "Leaving Soon"
 
 
 def _pick(keys: list[int], seen: set[int], max_results: int) -> list[int]:
@@ -182,25 +180,7 @@ def run(
         else:
             logger.warning("Collection '%s' (%d/%d) had no items — skipping", name, i + 1, count)
 
-    # 8. Refresh Leaving Soon collection
-    del_cfg = cfg.get("deletion", {}) if isinstance(cfg, dict) else {}
-    if del_cfg.get("enabled", False) and del_cfg.get("leaving_soon_row", True):
-        leaving_movies = get_leaving_soon_movies(all_movies, cfg)
-        if leaving_movies:
-            limit = del_cfg.get("leaving_soon_limit", DEFAULT_LEAVING_SOON_LIMIT)
-            leaving_keys = [m.ratingKey for m in leaving_movies]
-            random.shuffle(leaving_keys)
-            if limit and limit > 0:
-                leaving_keys = leaving_keys[:limit]
-
-            logger.info("Leaving Soon: %d items (randomised from %d eligible)", len(leaving_keys), len(leaving_movies))
-            client.upsert_collection(COLLECTION_LEAVING_SOON, leaving_keys)
-            collections_created_records.append({"title": COLLECTION_LEAVING_SOON, "library": client._library_name})
-            collections_written.append((COLLECTION_LEAVING_SOON, len(leaving_keys)))
-        else:
-            logger.info("Leaving Soon: no eligible movies found")
-
-    # 9. Atomically persist state and cooldown
+    # 8. Atomically persist state and cooldown
     save_curator_state(collections_created_records, state_path)
     save_cooldown(cooldown_history, all_surfaced_keys, cooldown_path)
 

@@ -144,6 +144,20 @@ def save_tracked_collections(data: dict[str, Any], path: Optional[Union[Path, st
     atomic_write_json(p, data)
 
 
+def get_flagged_file() -> Path:
+    return get_data_dir() / "flagged.json"
+
+
+def load_flagged(path: Optional[Union[Path, str]] = None) -> dict[str, Any]:
+    """Load the deletion queue: ratingKey -> {title, year, tmdb_id, rule, reason, flagged_at}."""
+    res = atomic_read_json(Path(path) if path else get_flagged_file(), default={})
+    return res if isinstance(res, dict) else {}
+
+
+def save_flagged(queue: dict[str, Any], path: Optional[Union[Path, str]] = None) -> None:
+    atomic_write_json(Path(path) if path else get_flagged_file(), queue)
+
+
 def load_cooldown(*args: Any, **kwargs: Any) -> Tuple[list[dict[str, Any]], Set[int]]:
     """
     Load curator cooldown history and set of surfaced ratingKeys within the cutoff window.

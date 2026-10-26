@@ -7,7 +7,7 @@ Unit tests for jobs/curator.py:
 - _delete_previous_collections() state cleanup
 - CollectionTracker.sync_tracked_collections() startup integration
 - Cooldown deduplication and atomic persistence
-- Leaving Soon row refresh via core.retention
+- The Leaving Soon row is left to the cleaner
 - CLI argument parsing (--config, positional, --help) and main entrypoint
 """
 
@@ -163,7 +163,7 @@ def test_curator_run_cooldown_deduplication(tmp_path):
         assert set(keys).issubset(set(cooldown_data[1]["keys"]))
 
 
-def test_curator_run_leaving_soon_refresh(tmp_path):
+def test_curator_leaves_the_leaving_soon_row_to_the_cleaner(tmp_path):
     old_movie = make_movie(ratingKey=99, title="Expiring Film", added_days_ago=150)
     cfg = {
         "plex": {"url": "http://plex", "token": "tok"},
@@ -187,7 +187,8 @@ def test_curator_run_leaving_soon_refresh(tmp_path):
 
         curator.run(cfg=cfg)
 
-        mock_client.upsert_collection.assert_called_once_with("Leaving Soon", [99])
+        mock_client.upsert_collection.assert_not_called()
+        mock_client.delete_collection.assert_not_called()
 
 
 def test_curator_not_enough_eligible_movies_stops_early(tmp_path):

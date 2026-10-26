@@ -11,7 +11,7 @@ Projectionist is a self-hosted AI concierge, curation layer, and automated stora
 ## Features
 
 - **WhatsApp Bot & Requests**: Request movies and TV shows conversationally using natural language. Paste Letterboxd list or movie links to batch request titles and optionally create Plex collections tagged "Keep Forever". Tracks download progress and notifies users when requested items are ready on Plex.
-- **Automated Clean Up & Leaving Soon**: Automatically prunes unwatched movies via Radarr once they exceed a configured age threshold. Protects tagged titles, tracked collections, and recently watched media. Pins a dynamic "Leaving Soon" collection to Plex prior to deletion and dispatches deletion summaries and failure alerts to WhatsApp.
+- **Automated Clean Up & Leaving Soon**: Flags movies nobody has added or watched for a configured time, holds them in a queue for a grace period (30 days by default) while a "Leaving Soon" collection in Plex shows what is going, then removes them via Radarr, a limited number per run. `/keep` rescues a film. Tagged titles and tracked collections are protected, and summaries and failure alerts go to WhatsApp.
 - **AI Themed Collections**: Generates creative, themed collections from unwatched library titles and pins them to your Plex home screen. Cooldown tracking ensures films are not repeated across consecutive runs.
 - **Weekly Digest**: Sends a scheduled WhatsApp digest showcasing newly added media alongside recommendations surfaced from your collection.
 
@@ -69,7 +69,9 @@ radarr:
 deletion:
   enabled: true
   dry_run: true
-  max_age_days: 120
+  grace_days: 30
+  max_deletions_per_run: 10
+  max_age_days: 120      # flag a movie nobody added or watched for this long
   protect_tag: "Keep Forever"
   leaving_soon_row: true
   leaving_soon_limit: 25
@@ -105,7 +107,7 @@ Messages starting with `/` are commands. Everything else is treated as a movie o
 | --- | --- |
 | `/keep <title> [year]` | Tag a movie already in Plex with "Keep Forever" so the cleaner skips it. Matching is forgiving (typos, accents, a missing "the", words in any order). An exact title is tagged immediately; anything else asks "Did you mean…?" first. |
 | `/unkeep <title> [year]` | Remove the tag, with the same matching and confirmation. Movies in a protected tracked collection stay protected, and the reply tells you so. |
-| `/leaving` | List the movies the cleaner would delete right now, and whether it is disabled, in dry-run, or active. |
+| `/leaving` | List the movies flagged for deletion with the date each one goes and why, plus whether the cleaner is disabled, in dry-run, or active. |
 | `/status` | Show download progress for tracked collections (for example `3/10 ready`). |
 | `/help` | List the commands. |
 

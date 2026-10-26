@@ -58,7 +58,19 @@ radarr:
 deletion:
   enabled: false
   dry_run: true
+  # Movies matching a rule are flagged, wait `grace_days` in a queue (see /leaving and the
+  # Leaving Soon row; /keep rescues one), then are deleted, at most `max_deletions_per_run`
+  # per cleaner run.
+  grace_days: 30
+  max_deletions_per_run: 10
+  # Without `rules`, a movie is flagged when nobody added or watched it for this many days.
   max_age_days: 120
+  # Or define rules. Conditions: idle_days, added_days, last_watched_days, each with a
+  # _gte or _lt suffix. All conditions in a rule must match; any rule can flag a movie.
+  # rules:
+  #   - name: idle
+  #     when:
+  #       idle_days_gte: 120
   protect_tag: "Keep Forever"
-  leaving_soon_row: true    # Maintain a randomized 'Leaving Soon' collection in Plex
-  leaving_soon_limit: 25   # Max movies in the row per refresh (0 or omit for all)
+  leaving_soon_row: true    # Keep a 'Leaving Soon' collection in Plex in step with the queue
+  leaving_soon_limit: 25    # Max movies in the row (0 or omit for all)

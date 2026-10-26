@@ -1,8 +1,9 @@
 """
 jobs/cleaner.py
 Scheduled cleaner job for Projectionist.
-Atomically evaluates retention, deletes expired movies in Radarr, and dispatches
-immediate WhatsApp summaries and failure alerts in a single pass without intermediate state files.
+Flags movies that match a retention rule, lets each wait out a grace window in the
+deletion queue, then deletes the ones that are due via Radarr (at most
+`max_deletions_per_run` per run) and reports to WhatsApp in a single message.
 
 Usage:
     python -m jobs.cleaner [--dry-run | --no-dry-run] [--config PATH]
@@ -13,21 +14,29 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from core.config import load_config
+from core.flagged import due_keys, reconcile
 from core.notifier import WhatsAppNotifier
 from core.plex import PlexClient
-from core.retention import get_leaving_soon_movies
+from core.retention import flag_movies
+from core.storage import load_flagged, save_flagged
 from services.radarr import RadarrService
 
 logger = logging.getLogger(__name__)
+
+COLLECTION_LEAVING_SOON = "Leaving Soon"
+DEFAULT_GRACE_DAYS = 30
+DEFAULT_MAX_DELETIONS = 10
+DEFAULT_LEAVING_SOON_LIMIT = 25
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Build CLI argument parser for cleaner job."""
     parser = argparse.ArgumentParser(
-        description="Projectionist Cleaner Job: Atomic retention evaluation, Radarr deletion, and WhatsApp notification."
+        description="Projectionist Cleaner Job: flag, wait out the grace window, delete via Radarr, notify."
     )
     parser.add_argument(
         "--dry-run",
@@ -44,12 +53,31 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _entry_title(entry: dict[str, Any]) -> str:
+    return f"{entry['title']} ({entry['year']})" if entry.get("year") else str(entry["title"])
+
+
+def _flagged_lines(flagged: list[dict[str, Any]], per_rule: int = 5) -> str:
+    """One line per rule: name, count, and the first few titles."""
+    by_rule: dict[str, list[str]] = {}
+    for entry in flagged:
+        by_rule.setdefault(entry["rule"], []).append(_entry_title(entry))
+    lines = []
+    for rule, titles in by_rule.items():
+        more = f" +{len(titles) - per_rule} more" if len(titles) > per_rule else ""
+        lines.append(f"- *{rule}* ({len(titles)}): {', '.join(titles[:per_rule])}{more}")
+    return "\n".join(lines)
+
+
 def format_summary_message(
     deleted_titles: list[str],
     failed_titles: list[str],
     dry_run: bool,
+    flagged: Optional[list[dict[str, Any]]] = None,
+    deferred: int = 0,
+    grace_days: int = DEFAULT_GRACE_DAYS,
 ) -> str:
-    """Format plain-text WhatsApp deletion engine summary."""
+    """Format the plain-text WhatsApp cleaner summary."""
     def fmt(lst: list[str]) -> str:
         return "\n".join([f"- {t}" for t in lst])
 
@@ -57,20 +85,27 @@ def format_summary_message(
     if dry_run:
         msg += "⚠️ *DRY RUN MODE* (No files were actually deleted)\n\n"
 
-    msg += f"✅ *Removed ({len(deleted_titles)})*\n{fmt(deleted_titles)}\n"
-
+    if deleted_titles:
+        msg += f"✅ *Removed ({len(deleted_titles)})*\n{fmt(deleted_titles)}\n"
     if failed_titles:
-        msg += f"\n❌ *Failed ({len(failed_titles)})*\n{fmt(failed_titles)}"
-
-    return msg
+        msg += f"\n❌ *Failed ({len(failed_titles)})*\n{fmt(failed_titles)}\n"
+    if deferred:
+        msg += f"\n⏳ {deferred} more are due and will go in later runs.\n"
+    if flagged:
+        msg += (
+            f"\n🆕 *Flagged ({len(flagged)})*: leaving in {grace_days} days unless you /keep them\n"
+            f"{_flagged_lines(flagged)}\n"
+        )
+    return msg.rstrip()
 
 
 def format_template_summary(
     deleted_titles: list[str],
     failed_titles: list[str],
     dry_run: bool,
+    flagged: Optional[list[dict[str, Any]]] = None,
 ) -> str:
-    """Format condensed single-variable text for Meta WhatsApp Content API template."""
+    """Format condensed single-variable text for the Meta WhatsApp Content API template."""
     summary_text = ""
     if dry_run:
         summary_text += "⚠️ DRY RUN (No files deleted)\n\n"
@@ -78,8 +113,27 @@ def format_template_summary(
     summary_text += f"✅ Removed ({len(deleted_titles)}): {', '.join(deleted_titles)[:100]}"
     if failed_titles:
         summary_text += f"\n❌ Failed ({len(failed_titles)}): {', '.join(failed_titles)[:100]}"
-
+    if flagged:
+        titles = ", ".join(_entry_title(e) for e in flagged)[:100]
+        summary_text += f" • 🆕 Flagged ({len(flagged)}): {titles}"
     return summary_text
+
+
+def refresh_leaving_soon_row(plex: PlexClient, queue: dict[str, Any], by_key: dict[str, Any], del_cfg: dict[str, Any]) -> None:
+    """Keep the Plex 'Leaving Soon' row in step with the deletion queue, soonest first."""
+    if not del_cfg.get("leaving_soon_row", True):
+        return
+    keys = [int(k) for k in sorted(queue, key=lambda k: queue[k]["flagged_at"]) if k in by_key]
+    limit = del_cfg.get("leaving_soon_limit", DEFAULT_LEAVING_SOON_LIMIT)
+    if limit and limit > 0:
+        keys = keys[:limit]
+    try:
+        if keys:
+            plex.upsert_collection(COLLECTION_LEAVING_SOON, keys)
+        else:
+            plex.delete_collection(COLLECTION_LEAVING_SOON)
+    except Exception as exc:
+        logger.warning("Could not refresh the Leaving Soon row: %s", exc)
 
 
 def run_cleaner(
@@ -91,15 +145,15 @@ def run_cleaner(
     notifier: Optional[WhatsAppNotifier] = None,
 ) -> dict[str, Any]:
     """
-    Execute atomic single-pass cleaner job.
+    Execute one cleaner pass.
 
-    1. Load and validate configuration.
-    2. Check deletion enabled (early exit if disabled).
-    3. Connect to Plex and evaluate retention candidates via core.retention.
-    4. Lookup and delete candidates via services.radarr.RadarrService.
-    5. Dispatch immediate WhatsApp summary broadcast if movies deleted/simulated.
-    6. Dispatch immediate failure alert via core.notifier if any deletions fail.
-    7. Return execution summary dict without creating intermediate state files.
+    1. Load config; exit early if deletion is disabled.
+    2. Connect to Plex and flag movies that match a retention rule.
+    3. Reconcile the deletion queue (data/flagged.json): new flags are stamped, movies that
+       no longer match drop off. Flagging deletes nothing, so it also happens in dry-run.
+    4. Delete queued movies whose grace window has passed, oldest first, at most
+       `deletion.max_deletions_per_run` per run.
+    5. Refresh the Leaving Soon row and send one summary (plus a failure alert if needed).
     """
     if cfg is None:
         cfg = load_config(config_path)
@@ -120,7 +174,12 @@ def run_cleaner(
     else:
         is_dry_run = bool(del_cfg.get("dry_run", True))
 
-    logger.info("Starting cleaner (Dry Run: %s)", is_dry_run)
+    grace_days = int(del_cfg.get("grace_days", DEFAULT_GRACE_DAYS))
+    max_per_run = max(0, int(del_cfg.get("max_deletions_per_run", DEFAULT_MAX_DELETIONS)))
+    logger.info("Starting cleaner (Dry Run: %s, grace %d days, max %d per run)", is_dry_run, grace_days, max_per_run)
+
+    if notifier is None:
+        notifier = WhatsAppNotifier.from_config(cfg)
 
     # 1. Initialize Plex & fetch movies
     if plex is None:
@@ -130,8 +189,6 @@ def run_cleaner(
         movies = plex.fetch_movies()
     except Exception as exc:
         logger.error("Failed to connect or fetch movies from Plex: %s", exc)
-        if notifier is None:
-            notifier = WhatsAppNotifier.from_config(cfg)
         if notifier.is_configured:
             notifier.send_alert(f"Cleaner failed to connect to Plex: {exc}")
         return {
@@ -141,25 +198,38 @@ def run_cleaner(
             "failed": [f"Plex Connection Error: {exc}"],
         }
 
-    # 2. Evaluate retention
-    to_delete = get_leaving_soon_movies(movies, cfg)
-    if not to_delete:
-        logger.info("No movies met the deletion criteria today.")
+    # 2. Flag and reconcile the queue
+    now = datetime.now(timezone.utc)
+    try:
+        flags = flag_movies(movies, cfg, now=now)
+    except ValueError as exc:
+        logger.error("Invalid deletion rules: %s", exc)
+        if notifier.is_configured:
+            notifier.send_alert(f"Cleaner not run, fix deletion rules in config: {exc}")
+        return {"status": "config_error", "dry_run": is_dry_run, "deleted": [], "failed": [str(exc)]}
+
+    queue, added = reconcile(flags, load_flagged(), now)
+    save_flagged(queue)
+    by_key = {str(m.ratingKey): m for m in movies}
+    due = [by_key[k] for k in due_keys(queue, grace_days, now) if k in by_key]
+    to_delete, deferred = due[:max_per_run], max(0, len(due) - max_per_run)
+
+    if not to_delete and not added:
+        logger.info("Nothing to flag or delete today (%d queued).", len(queue))
+        refresh_leaving_soon_row(plex, queue, by_key, del_cfg)
         return {
             "status": "no_candidates",
             "dry_run": is_dry_run,
             "deleted": [],
             "failed": [],
+            "queued": len(queue),
         }
 
-    # 3. Initialize Radarr service & Notifier
+    # 3. Initialize Radarr (only needed when something is due)
     if radarr is None:
         radarr = RadarrService.from_config(cfg)
 
-    if notifier is None:
-        notifier = WhatsAppNotifier.from_config(cfg)
-
-    if not radarr.is_configured:
+    if to_delete and not radarr.is_configured:
         logger.error("Radarr URL and API Key must be configured to run the cleaner.")
         if notifier.is_configured:
             notifier.send_alert("Radarr service is not configured (missing URL or API key). Cleaner cannot delete candidates.")
@@ -202,6 +272,7 @@ def run_cleaner(
                 success = radarr.delete_movie(radarr_id, delete_files=True, add_import_exclusion=False)
                 if success:
                     deleted_titles.append(m.title)
+                    queue.pop(str(m.ratingKey), None)
                 else:
                     logger.error("Failed to delete '%s' via Radarr.", m.title)
                     failed_titles.append(f"{m.title} (API Error)")
@@ -210,26 +281,31 @@ def run_cleaner(
             logger.error("Exception processing deletion for '%s': %s", m.title, exc)
             failed_titles.append(f"{m.title} (Exception: {exc})")
 
+    if deleted_titles and not is_dry_run:
+        save_flagged(queue)
+    refresh_leaving_soon_row(plex, queue, by_key, del_cfg)
+
     # 5. Immediate WhatsApp reporting & failure alerting
     wa_cfg = cfg.get("whatsapp", {}) if isinstance(cfg, dict) else {}
     wa_enabled = bool(wa_cfg.get("enabled", False))
 
     if wa_enabled and notifier.is_configured:
-        # 5a. Broadcast deletion summary if movies were deleted / simulated
-        if deleted_titles:
-            msg_body = format_summary_message(deleted_titles, failed_titles, is_dry_run)
+        # 5a. One summary: what was removed, what failed, and what was newly flagged
+        if deleted_titles or added:
+            msg_body = format_summary_message(
+                deleted_titles, failed_titles, is_dry_run, flagged=added, deferred=deferred, grace_days=grace_days
+            )
             template_sid = wa_cfg.get("cleaner_template_sid")
             content_vars = None
             if template_sid:
-                summary_text = format_template_summary(deleted_titles, failed_titles, is_dry_run)
-                content_vars = {"1": summary_text}
+                content_vars = {"1": format_template_summary(deleted_titles, failed_titles, is_dry_run, flagged=added)}
 
             notifier.send_broadcast(
                 body=msg_body,
                 content_sid=template_sid,
                 content_variables=content_vars,
             )
-            logger.info("Dispatched WhatsApp deletion summary broadcast.")
+            logger.info("Dispatched WhatsApp cleaner summary broadcast.")
 
         # 5b. Immediate operational failure alert if any deletions failed
         if failed_titles:
@@ -241,9 +317,11 @@ def run_cleaner(
             logger.info("Dispatched immediate WhatsApp operational failure alert.")
 
     logger.info(
-        "Cleaner run completed. Deleted/Simulated: %d, Failed: %d",
+        "Cleaner run completed. Deleted/Simulated: %d, Failed: %d, Newly flagged: %d, Queued: %d",
         len(deleted_titles),
         len(failed_titles),
+        len(added),
+        len(queue),
     )
 
     return {
@@ -251,6 +329,9 @@ def run_cleaner(
         "dry_run": is_dry_run,
         "deleted": deleted_titles,
         "failed": failed_titles,
+        "flagged": [_entry_title(e) for e in added],
+        "queued": len(queue),
+        "deferred": deferred,
     }
 
 
@@ -297,7 +378,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         dry_run=args.dry_run,
     )
 
-    if result.get("status") in ("plex_error", "radarr_not_configured") or result.get("failed"):
+    if result.get("status") in ("plex_error", "radarr_not_configured", "config_error") or result.get("failed"):
         return 1
     return 0
 

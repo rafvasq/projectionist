@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,6 +17,7 @@ from bot.commands import (
     parse_command,
     split_title_year,
 )
+from core.storage import load_flagged, save_flagged
 from tests.conftest import make_movie
 
 SENDER = "whatsapp:+15551234567"
@@ -237,15 +239,23 @@ def test_apply_keep_change_edge_cases():
 # /leaving and /status
 # ==============================================================================
 
-def test_leaving_lists_only_eligible_movies(storage):
-    movies = [
-        make_movie(ratingKey=1, title="Old Movie", year=2001, added_days_ago=200),
-        make_movie(ratingKey=2, title="Fresh Movie", added_days_ago=10),
-        make_movie(ratingKey=3, title="Protected", added_days_ago=200, labels=["Keep Forever"]),
-    ]
+def queue_entry(key, title, year=2001, days_ago=5, reason="idle 130 days"):
+    stamp = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+    return str(key), {"title": title, "year": year, "tmdb_id": None, "rule": "idle", "reason": reason, "flagged_at": stamp}
+
+
+def test_leaving_lists_the_queue_with_dates_and_reasons(storage):
+    save_flagged(dict([queue_entry(1, "Old Movie")]))
+    movies = [make_movie(ratingKey=1, title="Old Movie", year=2001, added_days_ago=200)]
     reply = dispatch("/leaving", make_ctx(movies, {"deletion": {"enabled": True, "dry_run": False}}))
-    assert "Eligible for deletion (1)" in reply and "Old Movie (2001)" in reply
-    assert "Fresh Movie" not in reply and "Protected" not in reply and "Cleaner is active" in reply
+    assert "Flagged for deletion (1)" in reply and "Old Movie (2001)" in reply
+    assert "leaves" in reply and "idle 130 days" in reply and "Cleaner is active" in reply
+
+
+def test_leaving_mentions_movies_not_flagged_yet(storage):
+    movies = [make_movie(ratingKey=1, title="Old Movie", added_days_ago=200)]
+    reply = dispatch("/leaving", make_ctx(movies, {"deletion": {"enabled": True}}))
+    assert "1 more will be flagged at the next cleaner run" in reply
 
 
 @pytest.mark.parametrize("deletion, expected", [
@@ -257,12 +267,24 @@ def test_leaving_reports_cleaner_mode(storage, deletion, expected):
     assert expected in dispatch("/leaving", make_ctx(movies, {"deletion": deletion}))
 
 
-def test_leaving_nothing_and_truncation(storage):
+def test_leaving_nothing_truncation_and_bad_rules(storage):
     cfg = {"deletion": {"enabled": True}}
-    assert "Nothing is eligible" in dispatch("/leaving", make_ctx([make_movie(added_days_ago=5)], cfg))
+    assert "Nothing is flagged" in dispatch("/leaving", make_ctx([make_movie(added_days_ago=5)], cfg))
+
     many = [make_movie(ratingKey=i, title=f"Movie {i:02d}", added_days_ago=300) for i in range(20)]
+    save_flagged(dict(queue_entry(i, f"Movie {i:02d}", days_ago=i + 1) for i in range(20)))
     reply = dispatch("/leaving", make_ctx(many, cfg))
-    assert "Eligible for deletion (20)" in reply and "…and 5 more" in reply
+    assert "Flagged for deletion (20)" in reply and "…and 5 more" in reply
+
+    bad = {"deletion": {"rules": [{"name": "r", "when": {"rating_gte": 5}}]}}
+    assert "Problem with the deletion rules" in dispatch("/leaving", make_ctx(many, bad))
+
+
+def test_keep_takes_the_movie_off_the_deletion_queue(storage):
+    save_flagged(dict([queue_entry(7, "Heat", 1995)]))
+    ctx = make_ctx([make_movie(ratingKey=7, title="Heat", year=1995)])
+    assert "off the deletion queue" in dispatch("/keep Heat", ctx)
+    assert load_flagged() == {}
 
 
 def test_status(storage):

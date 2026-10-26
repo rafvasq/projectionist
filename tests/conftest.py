@@ -63,6 +63,12 @@ def make_movie(
 
 
 @pytest.fixture(autouse=True)
+def isolate_flagged_file(monkeypatch, tmp_path):
+    """Keep tests off the real deletion queue in data/flagged.json."""
+    monkeypatch.setattr("core.storage.get_flagged_file", lambda: tmp_path / "flagged.json")
+
+
+@pytest.fixture(autouse=True)
 def disable_network_modifications(monkeypatch):
     """
     Ensure no tests can make POST, PUT, PATCH, or DELETE requests.
