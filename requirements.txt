@@ -6,5 +6,5 @@ pytest>=8.0
 flask>=3.0
 twilio>=8.0
 beautifulsoup4>=4.12
-mellea
+mellea==0.8.0
 litellm
