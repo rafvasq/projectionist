@@ -165,6 +165,64 @@ def test_due_movie_is_deleted_and_leaves_the_queue(base_config):
     notifier.send_alert.assert_not_called()
 
 
+def seerr(issues=()):
+    service = MagicMock()
+    service.is_configured = True
+    service.forget_movies.return_value = list(issues)
+    return service
+
+
+def test_deleted_movies_are_cleared_from_overseerr(base_config):
+    movie = idle_movie(title="Old Classic", tmdb_id=500)
+    queue(movie)
+    plex, radarr, notifier = env(movie)
+    service = seerr()
+
+    result = cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier, overseerr=service)
+
+    service.forget_movies.assert_called_once_with({500: "Old Classic"})
+    assert result["cleanup_issues"] == []
+    notifier.send_alert.assert_not_called()
+
+
+def test_nothing_is_cleared_in_dry_run_or_when_radarr_fails(base_config):
+    movie = idle_movie(tmdb_id=500)
+    queue(movie)
+    plex, radarr, notifier = env(movie)
+    service = seerr()
+
+    cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier, overseerr=service, dry_run=True)
+    radarr.delete_movie.return_value = False
+    cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier, overseerr=service)
+
+    service.forget_movies.assert_not_called()
+
+
+def test_incomplete_overseerr_cleanup_alerts_admins_without_undoing_the_deletion(base_config):
+    movie = idle_movie(title="Old Classic", tmdb_id=500)
+    queue(movie)
+    plex, radarr, notifier = env(movie)
+
+    result = cleaner.run(
+        cfg=base_config, plex=plex, radarr=radarr, notifier=notifier,
+        overseerr=seerr(["Old Classic: still on the watchlist after removal"]),
+    )
+
+    assert result["deleted"] == ["Old Classic"] and load_flagged() == {}
+    assert "Overseerr cleanup was incomplete" in alert_text(notifier)
+    assert "still on the watchlist" in alert_text(notifier)
+
+
+def test_unconfigured_overseerr_is_skipped(base_config):
+    movie = idle_movie(tmdb_id=500)
+    queue(movie)
+    plex, radarr, notifier = env(movie)
+    service = seerr()
+    service.is_configured = False
+    cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier, overseerr=service)
+    service.forget_movies.assert_not_called()
+
+
 def test_dry_run_reports_but_deletes_nothing_and_keeps_the_queue(base_config):
     base_config["deletion"]["dry_run"] = True
     movie = idle_movie(title="Dry Run Movie", tmdb_id=600)

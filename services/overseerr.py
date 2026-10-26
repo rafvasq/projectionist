@@ -325,3 +325,79 @@ class OverseerrService:
         except Exception as exc:
             logger.error("Unexpected error in Overseerr request_media for TMDB %d: %s", numeric_id, exc)
             return False
+
+    # ------------------------------------------------------------------
+    # Cleanup after a movie has been deleted elsewhere
+    # ------------------------------------------------------------------
+
+    def _call(self, method: str, path: str, **kwargs: Any) -> Optional[requests.Response]:
+        """One API call; None on a network error so callers can report it."""
+        try:
+            return requests.request(method, f"{self.url}/api/v1{path}", headers=self._headers, timeout=self.timeout, **kwargs)
+        except requests.RequestException as exc:
+            logger.error("Overseerr %s %s failed: %s", method, path, exc)
+            return None
+
+    def request_ids(self, tmdb_id: int) -> Optional[list[int]]:
+        """Ids of the requests held for a movie. Empty if none or unknown, None on an error."""
+        resp = self._call("GET", f"/movie/{int(tmdb_id)}")
+        if resp is None or resp.status_code not in (200, 404):
+            return None
+        if resp.status_code == 404:
+            return []
+        info = resp.json().get("mediaInfo") or {}
+        return [r["id"] for r in info.get("requests") or [] if "id" in r]
+
+    def delete_request(self, request_id: int) -> bool:
+        """Delete a request. A request that is already gone counts as success."""
+        resp = self._call("DELETE", f"/request/{int(request_id)}")
+        return resp is not None and resp.status_code in (200, 204, 404)
+
+    def watchlist_tmdb_ids(self, max_pages: int = 50) -> Optional[set[int]]:
+        """TMDB ids of movies on the API-key user's Plex watchlist, or None on an error."""
+        found: set[int] = set()
+        page, total = 1, 1
+        while page <= total and page <= max_pages:
+            resp = self._call("GET", "/discover/watchlist", params={"page": page})
+            if resp is None or resp.status_code != 200:
+                return None
+            data = resp.json()
+            total = data.get("totalPages", 1)
+            found |= {i["tmdbId"] for i in data.get("results", []) if i.get("mediaType") == "movie" and i.get("tmdbId")}
+            page += 1
+        return found
+
+    def remove_from_watchlist(self, tmdb_id: int) -> bool:
+        """Remove a movie from the watchlist. Already gone counts as success."""
+        resp = self._call("DELETE", f"/watchlist/{int(tmdb_id)}", params={"mediaType": "movie"})
+        return resp is not None and resp.status_code in (200, 204, 404)
+
+    def forget_movies(self, titles: dict[int, str]) -> list[str]:
+        """
+        Once movies are deleted elsewhere, delete their Overseerr requests and take them off the
+        watchlist so they cannot be re-requested. `titles` maps TMDB id to title.
+        Returns a list of problems (empty when everything was cleared and verified).
+        """
+        problems: list[str] = []
+        on_watchlist = self.watchlist_tmdb_ids()
+        if on_watchlist is None:
+            problems.append("could not read the watchlist")
+            on_watchlist = set()
+
+        for tmdb_id, title in titles.items():
+            ids = self.request_ids(tmdb_id)
+            if ids is None:
+                problems.append(f"{title}: could not read its requests")
+            for request_id in ids or []:
+                if not self.delete_request(request_id):
+                    problems.append(f"{title}: request {request_id} not deleted")
+            if tmdb_id in on_watchlist and not self.remove_from_watchlist(tmdb_id):
+                problems.append(f"{title}: not removed from the watchlist")
+
+        removed = [t for t in titles if t in on_watchlist]
+        if removed:
+            after = self.watchlist_tmdb_ids()
+            for tmdb_id in removed:
+                if after is not None and tmdb_id in after:
+                    problems.append(f"{titles[tmdb_id]}: still on the watchlist after removal")
+        return problems

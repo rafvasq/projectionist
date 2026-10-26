@@ -23,6 +23,7 @@ from core.notifier import WhatsAppNotifier
 from core.plex import PlexClient
 from core.retention import flag_movies
 from core.storage import load_flagged, save_flagged
+from services.overseerr import OverseerrService
 from services.radarr import RadarrService
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,7 @@ def run_cleaner(
     plex: Optional[PlexClient] = None,
     radarr: Optional[RadarrService] = None,
     notifier: Optional[WhatsAppNotifier] = None,
+    overseerr: Optional[OverseerrService] = None,
 ) -> dict[str, Any]:
     """
     Execute one cleaner pass.
@@ -153,7 +155,8 @@ def run_cleaner(
     3. Reconcile the deletion queue (data/flagged.json): new flags are stamped, movies that
        no longer match drop off. Flagging deletes nothing, so it also happens in dry-run.
     4. Delete queued movies whose grace window has passed, oldest first, at most
-       `deletion.max_deletions_per_run` per run.
+       `deletion.max_deletions_per_run` per run. Each movie Radarr deletes is also cleared
+       from Overseerr (its requests and the watchlist entry) so it cannot be re-requested.
     5. Refresh the Leaving Soon row and send one summary (plus a failure alert if needed).
     """
     if cfg is None:
@@ -243,6 +246,7 @@ def run_cleaner(
 
     deleted_titles: list[str] = []
     failed_titles: list[str] = []
+    deleted_tmdb: dict[int, str] = {}
 
     # 4. Radarr deletion loop
     for m in to_delete:
@@ -273,6 +277,7 @@ def run_cleaner(
                 success = radarr.delete_movie(radarr_id, delete_files=True, add_import_exclusion=False)
                 if success:
                     deleted_titles.append(m.title)
+                    deleted_tmdb[m.tmdb_id] = m.title
                     queue.pop(str(m.ratingKey), None)
                 else:
                     logger.error("Failed to delete '%s' via Radarr.", m.title)
@@ -284,6 +289,17 @@ def run_cleaner(
 
     if deleted_titles and not is_dry_run:
         save_flagged(queue)
+
+    # A failed cleanup never undoes a deletion; it is reported to the admins instead.
+    cleanup_issues: list[str] = []
+    if deleted_tmdb:
+        try:
+            overseerr = overseerr or OverseerrService.from_config(cfg)
+            if overseerr.is_configured:
+                cleanup_issues = overseerr.forget_movies(deleted_tmdb)
+        except Exception as exc:
+            logger.error("Overseerr cleanup failed: %s", exc)
+            cleanup_issues = [f"Overseerr cleanup failed: {exc}"]
     refresh_leaving_soon_row(plex, queue, by_key, del_cfg)
 
     # 5. Immediate WhatsApp reporting & failure alerting
@@ -310,12 +326,19 @@ def run_cleaner(
             logger.info("Dispatched WhatsApp cleaner summary broadcast.")
 
         # 5b. Immediate operational failure alert if any deletions failed
-        if failed_titles:
-            alert_body = (
-                f"Cleaner encountered {len(failed_titles)} deletion failure(s):\n"
-                + "\n".join([f"- {t}" for t in failed_titles])
-            )
-            notifier.send_alert(alert_body)
+        if failed_titles or cleanup_issues:
+            parts = []
+            if failed_titles:
+                parts.append(
+                    f"Cleaner encountered {len(failed_titles)} deletion failure(s):\n"
+                    + "\n".join([f"- {t}" for t in failed_titles])
+                )
+            if cleanup_issues:
+                parts.append(
+                    "Removed, but the Overseerr cleanup was incomplete:\n"
+                    + "\n".join([f"- {i}" for i in cleanup_issues])
+                )
+            notifier.send_alert("\n\n".join(parts))
             logger.info("Dispatched immediate WhatsApp operational failure alert.")
 
     logger.info(
@@ -331,6 +354,7 @@ def run_cleaner(
         "dry_run": is_dry_run,
         "deleted": deleted_titles,
         "failed": failed_titles,
+        "cleanup_issues": cleanup_issues,
         "flagged": [_entry_title(e) for e in added],
         "queued": len(queue),
         "deferred": deferred,
@@ -345,6 +369,7 @@ def run(
     plex: Optional[PlexClient] = None,
     radarr: Optional[RadarrService] = None,
     notifier: Optional[WhatsAppNotifier] = None,
+    overseerr: Optional[OverseerrService] = None,
 ) -> dict[str, Any]:
     """Module-level run function supporting both CLI argv and programmatic invocations."""
     if argv is not None:
@@ -362,6 +387,7 @@ def run(
         plex=plex,
         radarr=radarr,
         notifier=notifier,
+        overseerr=overseerr,
     )
 
 
