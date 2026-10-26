@@ -175,8 +175,27 @@ def test_add_label():
 
     with patch("core.plex.PlexServer", return_value=mock_server):
         client = PlexClient("http://localhost:32400", "token")
-        client.add_label([1], label="Keep Forever")
+        assert client.add_label([1], label="Keep Forever") == 1
         mock_item.addLabel.assert_called_once_with("Keep Forever")
+
+
+def test_remove_label_counts_successes():
+    good = MagicMock()
+    good.ratingKey = 1
+    bad = MagicMock()
+    bad.ratingKey = 2
+    bad.removeLabel.side_effect = RuntimeError("plex error")
+    mock_section = MagicMock()
+    mock_section.title = "Movies"
+    mock_section.all.return_value = [good, bad]
+    mock_server = MagicMock()
+    mock_server.library.section.return_value = mock_section
+
+    with patch("core.plex.PlexServer", return_value=mock_server):
+        client = PlexClient("http://localhost:32400", "token")
+        assert client.remove_label([1, 2], label="Keep Forever") == 1
+        good.removeLabel.assert_called_once_with("Keep Forever")
+        assert client.remove_label([], label="Keep Forever") == 0
 
 
 def test_movie_to_meta_tmdb_id_parsing():

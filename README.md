@@ -97,6 +97,20 @@ docker compose exec ollama ollama pull llama3
 
 ---
 
+## WhatsApp Commands
+
+Messages starting with `/` are commands. Everything else is treated as a movie or show to request, or a Letterboxd link.
+
+| Command | What it does |
+| --- | --- |
+| `/keep <title> [year]` | Tag a movie already in Plex with "Keep Forever" so the cleaner skips it. Matching is forgiving (typos, accents, a missing "the", words in any order). An exact title is tagged immediately; anything else asks "Did you mean…?" first. |
+| `/unkeep <title> [year]` | Remove the tag, with the same matching and confirmation. Movies in a protected tracked collection stay protected, and the reply tells you so. |
+| `/leaving` | List the movies the cleaner would delete right now, and whether it is disabled, in dry-run, or active. |
+| `/status` | Show download progress for tracked collections (for example `3/10 ready`). |
+| `/help` | List the commands. |
+
+---
+
 ## CLI Usage
 
 Jobs can be executed directly from the command line:

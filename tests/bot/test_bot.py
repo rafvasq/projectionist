@@ -522,3 +522,62 @@ def test_main_startup_sync_error_resilience(mock_load_cfg, mock_tracker_cls, moc
 
     mock_tracker.sync_tracked_collections.assert_called_once()
     mock_app.run.assert_called_once()
+
+
+# ==============================================================================
+# Slash Command Routing Tests
+# ==============================================================================
+
+def _post(client, body, **extra):
+    return client.post("/whatsapp", data={"From": "whatsapp:+15551234567", "Body": body, **extra})
+
+
+def test_slash_command_runs_in_background_and_resets_state(client, test_app):
+    state_file = test_app.config["STATE_FILE"]
+    state_file.write_text(
+        json.dumps({"whatsapp:+15551234567": {"status": "WAITING_CONFIRM", "options": {}}}), encoding="utf-8"
+    )
+    with patch("core.storage.get_whatsapp_state_file", return_value=state_file),          patch("bot.handlers.threading.Thread") as mock_thread:
+        assert _post(client, "/keep Heat").status_code == 200
+
+    assert mock_thread.call_args.kwargs["target"].__name__ == "run_command_async"
+    assert mock_thread.call_args.kwargs["args"][2] == "/keep Heat"
+    assert json.loads(state_file.read_text(encoding="utf-8"))["whatsapp:+15551234567"]["status"] == "IDLE"
+
+
+def test_title_starting_with_keep_is_still_a_search(client):
+    with patch("bot.handlers.threading.Thread") as mock_thread:
+        resp = _post(client, "Keep the Lights On")
+    assert b"Searching..." in resp.data
+    assert mock_thread.call_args.kwargs["target"].__name__ == "process_search_async"
+
+
+class _SyncThread:
+    """Runs the thread target immediately so a multi-message conversation can be tested."""
+
+    def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+        self._target, self._args, self._kwargs = target, args, kwargs or {}
+
+    def start(self):
+        self._target(*self._args, **self._kwargs)
+
+
+def test_keep_typo_conversation_end_to_end(client, test_app, mock_services):
+    from tests.conftest import make_movie
+
+    state_file = test_app.config["STATE_FILE"]
+    mock_services["plex"].fetch_movies.return_value = [make_movie(ratingKey=77, title="Interstellar", year=2014)]
+    mock_services["plex"].add_label.return_value = 1
+
+    with patch("core.storage.get_whatsapp_state_file", return_value=state_file),          patch("bot.handlers.threading.Thread", _SyncThread):
+        _post(client, "/keep Interstelar")
+        assert "Did you mean *Interstellar (2014)*?" in mock_services["notifier"].send_message.call_args[0][1]
+        mock_services["plex"].add_label.assert_not_called()
+
+        _post(client, "7")  # not an option
+        mock_services["plex"].add_label.assert_not_called()
+
+        _post(client, "1")
+        mock_services["plex"].add_label.assert_called_once_with([77], "Keep Forever")
+        assert "now tagged" in mock_services["notifier"].send_message.call_args[0][1]
+        assert json.loads(state_file.read_text(encoding="utf-8"))["whatsapp:+15551234567"]["status"] == "IDLE"

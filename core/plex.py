@@ -229,21 +229,43 @@ class PlexClient:
         if promote:
             self._promote_collection(collection, title)
 
-    def add_label(self, keys: list[int], label: str = "Keep Forever", library_name: Optional[str] = None) -> None:
-        """Add a label to items in Plex."""
+    def add_label(self, keys: list[int], label: str = "Keep Forever", library_name: Optional[str] = None) -> int:
+        """Add a label to items in Plex. Returns the number of items successfully labelled."""
         if not keys:
-            return
+            return 0
 
         lib_name = library_name or self._library_name
         library = self.server.library.section(lib_name)
         items = self._fetch_items_by_keys(library, keys)
 
+        changed = 0
         for item in items:
             try:
                 item.addLabel(label)
+                changed += 1
                 logger.debug("Added label '%s' to '%s'", label, getattr(item, "title", item))
             except Exception as exc:
                 logger.warning("Could not add label '%s' to item %s: %s", label, item, exc)
+        return changed
+
+    def remove_label(self, keys: list[int], label: str = "Keep Forever", library_name: Optional[str] = None) -> int:
+        """Remove a label from items in Plex. Returns the number of items successfully updated."""
+        if not keys:
+            return 0
+
+        lib_name = library_name or self._library_name
+        library = self.server.library.section(lib_name)
+        items = self._fetch_items_by_keys(library, keys)
+
+        changed = 0
+        for item in items:
+            try:
+                item.removeLabel(label)
+                changed += 1
+                logger.debug("Removed label '%s' from '%s'", label, getattr(item, "title", item))
+            except Exception as exc:
+                logger.warning("Could not remove label '%s' from item %s: %s", label, item, exc)
+        return changed
 
     def _fetch_items_by_keys(self, library: Any, keys: list[int]) -> list[Any]:
         """Bulk-fetch Plex media objects by ratingKey using cache dictionary."""

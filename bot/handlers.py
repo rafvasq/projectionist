@@ -3,7 +3,8 @@ bot/handlers.py
 Flask blueprint and webhook request handlers:
 - Twilio WhatsApp webhook (/whatsapp and /webhook/twilio)
 - Overseerr notification webhook (/overseerr and /webhook/overseerr)
-- Conversation state machine (IDLE -> WAITING_CONFIRM / WAITING_SEASON / WAITING_LB_COLLECTION)
+- Slash commands (/keep, /unkeep, /leaving, /status, /help) dispatched via bot.commands
+- Conversation state machine (IDLE -> WAITING_CONFIRM / WAITING_SEASON / WAITING_LB_COLLECTION / WAITING_KEEP_CHOICE)
 - Natural language query resolution via core.ai
 - Letterboxd scraping and collection processing delegation
 NOTE: Unused 'abort' import has been completely removed.
@@ -31,6 +32,7 @@ from services.letterboxd import (
     fetch_letterboxd_html,
     scrape_letterboxd_list,
 )
+from bot.commands import CommandContext, apply_keep_change, dispatch, parse_command
 from bot.security import is_authorized_number, overseerr_auth_required, twilio_auth_required
 
 logger = logging.getLogger(__name__)
@@ -208,6 +210,35 @@ def run_collection_process_async(
         process_letterboxd_collection(sender, list_title, titles, create_collection)
 
 
+def _command_context(sender: str) -> tuple[CommandContext, Any]:
+    from bot.app import get_services
+    services = get_services()
+    ctx = CommandContext(
+        sender=sender,
+        plex=services.get("plex"),
+        config=services.get("config", {}),
+    )
+    return ctx, services.get("notifier")
+
+
+def run_command_async(app: Any, sender: str, text: str) -> None:
+    """Run a slash command in a background thread and reply via the notifier."""
+    with app.app_context():
+        ctx, notifier = _command_context(sender)
+        reply = dispatch(text, ctx)
+        if reply and notifier:
+            notifier.send_message(sender, reply)
+
+
+def run_keep_choice_async(app: Any, sender: str, action: str, selected: dict[str, Any]) -> None:
+    """Apply a numbered /keep or /unkeep selection and reply via the notifier."""
+    with app.app_context():
+        ctx, notifier = _command_context(sender)
+        reply = apply_keep_change(ctx, action, selected.get("ratingKey"), selected.get("title", ""))
+        if notifier:
+            notifier.send_message(sender, reply)
+
+
 # ==============================================================================
 # Webhook Routes
 # ==============================================================================
@@ -245,7 +276,20 @@ def receive_whatsapp():
         twiml_resp.message("❌ Search cancelled. Text me another movie or show.")
         return str(twiml_resp)
 
-    # 3. Letterboxd URL Detection
+    # 3. Slash Commands (a leading "/" is required, so titles like "Keep the Lights On" never match)
+    if parse_command(text):
+        state = load_whatsapp_state()
+        state[sender] = {"status": "IDLE"}
+        save_whatsapp_state(state)
+        app_obj = current_app._get_current_object()
+        threading.Thread(
+            target=run_command_async,
+            args=(app_obj, sender, text),
+            daemon=True,
+        ).start()
+        return str(twiml_resp)
+
+    # 4. Letterboxd URL Detection
     lb_match = re.search(
         r"(https?://(?:www\.)?(?:letterboxd\.com/(?:[^/]+/list/[^/\s]+|film/[^/\s]+)|boxd\.it/[^\s]+))",
         text,
@@ -260,9 +304,33 @@ def receive_whatsapp():
         ).start()
         return str(twiml_resp)
 
-    # 4. State Machine Transitions
+    # 5. State Machine Transitions
     state = load_whatsapp_state()
     user_state = state.get(sender, {"status": "IDLE"})
+
+    # State: WAITING_KEEP_CHOICE
+    if user_state.get("status") == "WAITING_KEEP_CHOICE":
+        options = user_state.get("options", {})
+        if text in options:
+            action = user_state.get("action", "keep")
+            selected = options[text]
+            state[sender] = {"status": "IDLE"}
+            save_whatsapp_state(state)
+            app_obj = current_app._get_current_object()
+            threading.Thread(
+                target=run_keep_choice_async,
+                args=(app_obj, sender, action, selected),
+                daemon=True,
+            ).start()
+            return str(twiml_resp)
+        else:
+            if text.isdigit():
+                twiml_resp.message("Invalid choice. Please reply with a valid number or 0 to cancel.")
+                return str(twiml_resp)
+            else:
+                state[sender] = {"status": "IDLE"}
+                save_whatsapp_state(state)
+                user_state = state[sender]
 
     # State: WAITING_LB_COLLECTION
     if user_state.get("status") == "WAITING_LB_COLLECTION":
