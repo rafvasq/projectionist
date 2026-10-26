@@ -219,6 +219,7 @@ def _command_context(sender: str) -> tuple[CommandContext, Any]:
         sender=sender,
         plex=services.get("plex"),
         config=services.get("config", {}),
+        radarr=services.get("radarr"),
     )
     return ctx, services.get("notifier")
 

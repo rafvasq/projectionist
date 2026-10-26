@@ -33,12 +33,12 @@ def storage(tmp_path):
         yield {"state": state, "tracked": tracked}
 
 
-def make_ctx(movies, config=None, plex=True):
+def make_ctx(movies, config=None, plex=True, radarr=None):
     p = MagicMock()
     p.fetch_movies.return_value = movies
     p.add_label.return_value = 1
     p.remove_label.return_value = 1
-    return CommandContext(sender=SENDER, plex=p if plex else None, config=config or {})
+    return CommandContext(sender=SENDER, plex=p if plex else None, config=config or {}, radarr=radarr)
 
 
 def saved_state(storage):
@@ -287,3 +287,52 @@ def test_status(storage):
     }), encoding="utf-8")
     reply = dispatch("/status", make_ctx([]))
     assert "⏳ *Girl Bands*: 1/2 ready" in reply and "✅ *Noir*: 1/1 ready" in reply
+
+
+# ==============================================================================
+# /recent and /downloads
+# ==============================================================================
+
+def test_recent_defaults_to_a_week_and_validates_the_days():
+    ctx = make_ctx([
+        make_movie(ratingKey=1, title="Fresh Film", added_days_ago=2),
+        make_movie(ratingKey=2, title="Older Film", added_days_ago=40),
+    ])
+    week = dispatch("/recent", ctx)
+    assert "Fresh Film" in week and "Older Film" not in week
+    assert "Older Film" in dispatch("/recent 60", ctx)
+    for bad in ("0", "366", "abc", "-3"):
+        assert "Usage: /recent" in dispatch(f"/recent {bad}", ctx)
+    assert "Plex isn't available" in dispatch("/recent", make_ctx([], plex=False))
+
+
+def _radarr(queue=([], 0), missing=([], 0), configured=True):
+    radarr = MagicMock()
+    radarr.is_configured = configured
+    radarr.get_queue.return_value = queue
+    radarr.get_missing.return_value = missing
+    return radarr
+
+
+def test_downloads_reports_a_missing_or_unreachable_radarr():
+    assert "Radarr isn't configured" in dispatch("/downloads", make_ctx([]))
+    assert "Radarr isn't configured" in dispatch("/downloads", make_ctx([], radarr=_radarr(configured=False)))
+    broken = _radarr()
+    broken.get_queue.return_value = None
+    assert "Couldn't reach Radarr" in dispatch("/downloads", make_ctx([], radarr=broken))
+
+
+def test_downloads_shows_what_is_waiting_for_a_release():
+    missing = ([{"id": 2, "title": "Times Square", "year": 1980, "isAvailable": True, "lastSearchTime": None,
+                 "added": "2026-10-25T00:00:00Z"}], 1)
+    reply = dispatch("/downloads", make_ctx([], radarr=_radarr(missing=missing)))
+    assert "Waiting for a release (1)" in reply and "Times Square (1980) - not searched yet" in reply
+
+
+def test_the_app_hands_radarr_to_the_commands():
+    from bot.app import create_app, get_services
+
+    radarr = MagicMock()
+    app = create_app(config={"whatsapp": {"allowed_numbers": []}}, radarr=radarr, testing=True)
+    with app.app_context():
+        assert get_services()["radarr"] is radarr

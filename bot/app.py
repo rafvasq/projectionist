@@ -15,6 +15,7 @@ from core.notifier import WhatsAppNotifier
 from core.plex import PlexClient
 from core.roles import load_users
 from services.overseerr import OverseerrService
+from services.radarr import RadarrService
 from services.tracker import CollectionTracker
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ def create_app(
     overseerr: Optional[OverseerrService] = None,
     tracker: Optional[CollectionTracker] = None,
     plex: Optional[PlexClient] = None,
+    radarr: Optional[RadarrService] = None,
     testing: bool = False,
 ) -> Flask:
     """
@@ -99,7 +101,11 @@ def create_app(
         overseerr=injected_overseerr,
     )
 
+    # 5. RadarrService
+    injected_radarr = radarr if radarr is not None else RadarrService.from_config(cfg)
+
     # Register extensions
+    app.extensions["radarr"] = injected_radarr
     app.extensions["notifier"] = injected_notifier
     app.extensions["overseerr"] = injected_overseerr
     app.extensions["tracker"] = injected_tracker
@@ -127,5 +133,6 @@ def get_services(app_instance: Optional[Flask] = None) -> dict[str, Any]:
         "overseerr": target.extensions.get("overseerr"),
         "tracker": target.extensions.get("tracker"),
         "plex": target.extensions.get("plex"),
+        "radarr": target.extensions.get("radarr"),
         "ai_model": target.config.get("AI_MODEL", "gemini/gemini-3.5-flash"),
     }

@@ -15,16 +15,15 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from core.flagged import deletion_date, dequeue, sort_key
-from core.retention import flag_movies
-from core.storage import load_flagged, load_tracked_collections, load_whatsapp_state, save_whatsapp_state
+from bot import answers
+from core.flagged import dequeue
+from core.storage import load_tracked_collections, load_whatsapp_state, save_whatsapp_state
 
 logger = logging.getLogger(__name__)
 
 KEEP_LABEL = "Keep Forever"
 PROTECT_LABELS = {"keep", "keep forever"}
 MAX_CHOICES = 5
-MAX_LISTED = 15
 FUZZY_CUTOFF = 0.78
 _KEYCAP = "️⃣"
 _PLEX_DOWN = "❌ Plex isn't available right now."
@@ -35,6 +34,7 @@ class CommandContext:
     sender: str
     plex: Any
     config: dict[str, Any]
+    radarr: Any = None
 
 
 # ==============================================================================
@@ -103,12 +103,7 @@ def find_movies(movies: list[Any], query: str) -> tuple[list[Any], bool]:
     return found, exact
 
 
-def _label(movie: Any) -> str:
-    return f"{movie.title} ({movie.year})" if getattr(movie, "year", None) else str(movie.title)
-
-
-def _label_entry(entry: dict[str, Any]) -> str:
-    return f"{entry['title']} ({entry['year']})" if entry.get("year") else str(entry["title"])
+_label = answers.movie_label
 
 
 def _protect_labels(movie: Any) -> list[str]:
@@ -202,38 +197,26 @@ def apply_keep_change(ctx: CommandContext, action: str, rating_key: int, title: 
 
 def cmd_leaving(ctx: CommandContext, args: str) -> str:
     movies, error = _library(ctx)
-    if error:
-        return error
+    return error or answers.leaving(movies, ctx.config)
 
-    del_cfg = (ctx.config or {}).get("deletion", {})
-    grace_days = int(del_cfg.get("grace_days", 30))
-    if not del_cfg.get("enabled", False):
-        mode = "Cleaner is disabled in config, so nothing will be deleted."
-    elif del_cfg.get("dry_run", True):
-        mode = "Cleaner is in dry-run mode in config: nothing is actually deleted."
-    else:
-        mode = "⚠️ Cleaner is active: these will be deleted on schedule."
 
-    try:
-        flags = flag_movies(movies, ctx.config)
-    except ValueError as exc:
-        return f"❌ Problem with the deletion rules in config: {exc}"
-    queue = load_flagged()
-    in_library = {str(m.ratingKey) for m in movies}
-    queued = sorted((e for k, e in queue.items() if k in in_library), key=sort_key)
-    unqueued = sum(1 for f in flags if str(f.movie.ratingKey) not in queue)
-    if not queued and not unqueued:
-        return f"✅ Nothing is flagged for deletion right now.\n\n{mode}"
+def cmd_recent(ctx: CommandContext, args: str) -> str:
+    days = 7
+    if args:
+        if not args.isdigit() or not 1 <= int(args) <= 365:
+            return "Usage: /recent [days]\nExample: /recent 14 (1 to 365 days, default 7)"
+        days = int(args)
+    movies, error = _library(ctx)
+    return error or answers.recent(movies, days)
 
-    lines = [
-        f"- {_label_entry(e)} - leaves {deletion_date(e, grace_days):%b %d} ({e['reason']})"
-        for e in queued[:MAX_LISTED]
-    ]
-    if len(queued) > MAX_LISTED:
-        lines.append(f"…and {len(queued) - MAX_LISTED} more")
-    if unqueued:
-        lines.append(f"{unqueued} more will be flagged at the next cleaner run.")
-    return f"🧹 *Flagged for deletion ({len(queued)})*\n" + "\n".join(lines) + f"\n\n{mode}\nUse /keep <title> to save one."
+
+def cmd_downloads(ctx: CommandContext, args: str) -> str:
+    if ctx.radarr is None or not ctx.radarr.is_configured:
+        return "❌ Radarr isn't configured."
+    queue, missing = ctx.radarr.get_queue(), ctx.radarr.get_missing()
+    if queue is None or missing is None:
+        return "❌ Couldn't reach Radarr."
+    return answers.downloading(queue, missing)
 
 
 def cmd_status(ctx: CommandContext, args: str) -> str:
@@ -260,6 +243,8 @@ COMMANDS = {
     "keep": ("/keep <title> [year]", "protect a movie in Plex from cleanup", lambda c, a: _keep_change(c, a, "keep")),
     "unkeep": ("/unkeep <title> [year]", "remove Keep Forever from a movie", lambda c, a: _keep_change(c, a, "unkeep")),
     "leaving": ("/leaving", "movies flagged for deletion", cmd_leaving),
+    "recent": ("/recent [days]", "movies added lately (default 7 days)", cmd_recent),
+    "downloads": ("/downloads", "what is downloading or waiting for a release", cmd_downloads),
     "status": ("/status", "collections still waiting on downloads", cmd_status),
     "help": ("/help", "show this list", cmd_help),
 }

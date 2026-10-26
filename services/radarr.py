@@ -1,8 +1,8 @@
 """
 services/radarr.py
 Radarr API adapter service.
-Handles movie lookup by TMDB ID and movie deletion (with file deletion) via Radarr v3 API
-with explicit timeouts and robust error handling.
+Handles movie lookup by TMDB ID, movie deletion (with file deletion), and the download queue
+and missing list via Radarr v3 API with explicit timeouts and robust error handling.
 """
 
 from __future__ import annotations
@@ -179,3 +179,27 @@ class RadarrService:
         except Exception as exc:
             logger.error("Unexpected error in Radarr deletion for ID %d: %s", numeric_id, exc)
             return False
+
+    def _records(self, path: str, params: dict[str, Any]) -> Optional[tuple[list[dict[str, Any]], int]]:
+        """(records, total) from a paged Radarr list endpoint; None if unconfigured or on any error."""
+        if not self.is_configured:
+            return None
+        try:
+            resp = requests.get(f"{self.url}/api/v3{path}", params=params, headers=self._headers, timeout=self.timeout)
+            if resp.status_code != 200:
+                logger.error("Radarr %s failed with HTTP %d: %s", path, resp.status_code, resp.text[:200])
+                return None
+            data = resp.json()
+            records = [r for r in data.get("records", []) if isinstance(r, dict)]
+            return records, int(data.get("totalRecords", len(records)))
+        except (requests.RequestException, ValueError) as exc:
+            logger.error("Radarr %s error: %s", path, exc)
+            return None
+
+    def get_queue(self, page_size: int = 50) -> Optional[tuple[list[dict[str, Any]], int]]:
+        """Active downloads (GET /api/v3/queue) as (records, total), with the movie attached."""
+        return self._records("/queue", {"page": 1, "pageSize": page_size, "includeMovie": "true"})
+
+    def get_missing(self, page_size: int = 100) -> Optional[tuple[list[dict[str, Any]], int]]:
+        """Monitored movies with no file (GET /api/v3/wanted/missing) as (records, total)."""
+        return self._records("/wanted/missing", {"page": 1, "pageSize": page_size, "monitored": "true"})

@@ -11,7 +11,7 @@ Projectionist is a self-hosted AI concierge, curation layer, and automated stora
 ## Features
 
 - **WhatsApp Bot & Requests**: Request movies and TV shows conversationally using natural language. Paste Letterboxd list or movie links to batch request titles and optionally create Plex collections tagged "Keep Forever". Tracks download progress and notifies users when requested items are ready on Plex. Admins get slash commands (`/keep`, `/leaving`, ...); family members can be given a user role that only requests and receives notices.
-- **Automated Clean Up & Leaving Soon**: Flags movies nobody has added or watched for a configured time, holds them in a queue for a grace period (30 days by default) while a "Leaving Soon" collection in Plex shows what is going, then removes them via Radarr, a limited number per run, and clears each removed movie's Overseerr requests and watchlist entry so it cannot be re-requested. `/keep` rescues a film. Tagged titles are protected (everything brought in from a list is tagged Keep Forever), and summaries and failure alerts go to admins on WhatsApp. Configure the threshold with `max_age_days` or define your own `rules` (see `config.example.yaml`); the cleaner starts in dry-run.
+- **Automated Clean Up & Leaving Soon**: Flags movies nobody has added or watched for a configured time, holds them in a queue for a grace period (30 days by default) while a "Leaving Soon" collection in Plex shows what is going, then removes them via Radarr, a limited number per run, and clears each removed movie's Overseerr requests and takes it off your Plex watchlist (through your Plex account token) so it cannot be re-requested. `/keep` rescues a film. Tagged titles are protected (everything brought in from a list is tagged Keep Forever), and summaries and failure alerts go to admins on WhatsApp. Configure the threshold with `max_age_days` or define your own `rules` (see `config.example.yaml`); the cleaner starts in dry-run.
 - **AI Themed Collections**: Generates creative, themed collections from unwatched library titles and pins them to your Plex home screen. Cooldown tracking ensures films are not repeated across consecutive runs.
 - **Weekly Digest**: Sends a scheduled WhatsApp digest showcasing newly added media alongside recommendations surfaced from your collection.
 
@@ -113,6 +113,8 @@ Roles: by default every number in `allowed_numbers` is an admin. To let family m
 | `/keep <title> [year]` | Tag a movie already in Plex with "Keep Forever" so the cleaner skips it. Matching is forgiving (typos, accents, a missing "the", words in any order). An exact title is tagged immediately; anything else asks "Did you mean…?" first. |
 | `/unkeep <title> [year]` | Remove the tag, with the same matching and confirmation. |
 | `/leaving` | List the movies flagged for deletion with the date each one goes and why, plus whether the cleaner is disabled, in dry-run, or active. |
+| `/recent [days]` | List movies added to the library in the last N days (default 7, up to 365). |
+| `/downloads` | Show what Radarr is downloading, and what it is still waiting on a release for (searched, nothing found yet, or not released). |
 | `/status` | Show collections from imported lists that are still waiting on downloads (for example `3/10 ready`). A collection is forgotten once everything has arrived. |
 | `/help` | List the commands. |
 
