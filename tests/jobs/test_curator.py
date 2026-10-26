@@ -145,9 +145,12 @@ def test_curator_run_cooldown_deduplication(tmp_path):
          patch("jobs.curator.CollectionTracker"), \
          patch("jobs.curator.setup_ai_env", return_value="gemini/gemini-3.5-flash-lite"), \
          patch("jobs.curator.start_session"), \
-         patch("jobs.curator.curate_collection", return_value=mock_curation):
+         patch("jobs.curator.curate_row", return_value=mock_curation) as mock_curate:
 
         summary = curator.run(cfg=cfg)
+
+        # The model is only allowed to pick films that are in the library and not cooling down
+        assert mock_curate.call_args.kwargs["valid_keys"] == set(range(3, 15))
 
         mock_client.upsert_collection.assert_called_once()
         name, keys = mock_client.upsert_collection.call_args[0]
@@ -207,7 +210,7 @@ def test_curator_not_enough_eligible_movies_stops_early(tmp_path):
 
     with patch("jobs.curator.PlexClient.from_config", return_value=mock_client), \
          patch("jobs.curator.CollectionTracker"), \
-         patch("jobs.curator.curate_collection") as mock_curate:
+         patch("jobs.curator.curate_row") as mock_curate:
 
         summary = curator.run(cfg=cfg)
         mock_curate.assert_not_called()

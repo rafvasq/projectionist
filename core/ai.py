@@ -5,18 +5,24 @@ Defines Pydantic models, generative AI curation and intent parsing, and environm
 """
 
 from __future__ import annotations
+import json
 import os
 from contextlib import contextmanager
 from typing import Any, Generator, Optional
 
 from pydantic import BaseModel, Field
 from mellea import generative, start_session
+from mellea.stdlib.requirements import req, simple_validate
+from mellea.stdlib.sampling import RejectionSamplingStrategy
+
+MIN_ROW_KEYS = 10
+RETRY_BUDGET = 3
 
 
 class CurationResult(BaseModel):
     """Result schema for generative film collection curation."""
     name: str = Field(description="The creative, evocative name for the collection (3-6 words).")
-    keys: list[int] = Field(description="The ratingKeys of 10-20 films from the library that fit the theme.", min_length=10)
+    keys: list[int] = Field(description="The ratingKeys of 10-20 films from the library that fit the theme.")
 
 
 class MovieIntent(BaseModel):
@@ -46,6 +52,36 @@ def curate_collection(movies_json: str, exclude_themes_str: str) -> CurationResu
 def parse_movie(text: str) -> MovieIntent:
     """You are a movie concierge. The user will give you a text query that might be an exact title, or a piece of trivia (e.g. 'the movie with the guy who has scissors for hands'). Resolve the trivia to the exact official movie or TV show title. Extract the year if provided."""
     ...
+
+
+def curate_row(m: Any, movies_json: str, exclude_themes_str: str, valid_keys: set[int]) -> CurationResult:
+    """
+    Ask the model for one themed row of films. A retry is triggered when it names a film that is
+    not in the library or returns too few. When the retries run out the framework hands back a
+    failing answer without raising, so the keys are checked again here and unknown ones dropped.
+    Raises ValueError when fewer than MIN_ROW_KEYS valid films remain.
+    """
+    def keys_in_library(output: str) -> bool:
+        try:
+            keys = json.loads(output)["result"]["keys"]
+        except (ValueError, KeyError, TypeError):
+            return False
+        return len(set(keys)) >= MIN_ROW_KEYS and all(k in valid_keys for k in keys)
+
+    result = curate_collection(
+        m=m,
+        movies_json=movies_json,
+        exclude_themes_str=exclude_themes_str,
+        requirements=[req(
+            f"Use only ratingKeys from the library and return at least {MIN_ROW_KEYS}.",
+            validation_fn=simple_validate(keys_in_library, reason="A key was not in the library, or there were too few."),
+        )],
+        strategy=RejectionSamplingStrategy(loop_budget=RETRY_BUDGET),
+    )
+    valid = [k for k in dict.fromkeys(result.keys) if k in valid_keys]
+    if len(valid) < MIN_ROW_KEYS:
+        raise ValueError(f"only {len(valid)} of {len(result.keys)} returned keys are in the library")
+    return CurationResult(name=result.name, keys=valid)
 
 
 def setup_ai_env(cfg: dict[str, Any], default_model: str = "gemini-3.5-flash-lite") -> str:

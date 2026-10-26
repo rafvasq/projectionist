@@ -19,7 +19,7 @@ from typing import Any, Optional, Union
 
 from core.config import load_config
 from core.plex import MovieMeta, PlexClient
-from core.ai import setup_ai_env, curate_collection, ai_session
+from core.ai import setup_ai_env, curate_row, ai_session
 from core.storage import (
     load_cooldown,
     save_cooldown,
@@ -160,10 +160,12 @@ def run(
 
         try:
             with start_session(ai_model) as session:
-                try:
-                    result = curate_collection(m=session, movies_json=movies_json, exclude_themes_str=exclude_str)
-                except TypeError:
-                    result = curate_collection(movies_json=movies_json, exclude_themes_str=exclude_str)
+                result = curate_row(
+                    m=session,
+                    movies_json=movies_json,
+                    exclude_themes_str=exclude_str,
+                    valid_keys={m.ratingKey for m in available_movies},
+                )
             name, keys = result.name, result.keys
         except Exception as exc:
             logger.error("Mellea curate API error: %s", exc)
