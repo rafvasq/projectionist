@@ -95,3 +95,31 @@ def test_downloading_with_nothing_going_on_and_with_long_lists():
 def test_search_age_wording(hours, expected):
     stamp = (NOW - timedelta(hours=hours)).isoformat()
     assert answers._ago(stamp, NOW) == expected
+
+
+# ==============================================================================
+# cleaner_log
+# ==============================================================================
+
+def test_cleaner_log_summarises_each_kind_of_run():
+    runs = [
+        {"at": "2026-11-25T04:00-05:00", "status": "completed", "dry_run": False, "queued": 94,
+         "deleted": ["Taste of Cherry", "The Goonies", "Rental Family", "Labyrinth"],
+         "failed": ["Bad Movie (Not in Radarr)"], "cleanup_issues": ["x"], "flagged": 2, "deferred": 5},
+        {"at": "2026-10-26T12:44-04:00", "status": "no_candidates", "dry_run": True, "queued": 115},
+        {"at": "2026-10-26T12:33-04:00", "status": "completed", "dry_run": True, "flagged": 115, "queued": 115},
+        {"at": "2026-10-20T04:00-04:00", "status": "plex_error", "dry_run": False},
+        {"at": "garbage", "status": "config_error", "dry_run": False},
+    ]
+    lines = answers.cleaner_log(runs).splitlines()
+    assert lines[0] == "📜 *Recent cleaner runs*"
+    assert lines[1] == ("- Nov 25 04:00 · live · removed 4 (Taste of Cherry, The Goonies, Rental Family +1) · "
+                        "1 failed · 1 cleanup issue · flagged 2 · 5 deferred · 94 queued")
+    assert lines[2] == "- Oct 26 12:44 · dry run · nothing to do · 115 queued"
+    assert lines[3] == "- Oct 26 12:33 · dry run · flagged 115 · 115 queued"
+    assert lines[4] == "- Oct 20 04:00 · live · couldn't reach Plex"
+    assert lines[5] == "- unknown time · live · stopped: fix the deletion rules"
+
+
+def test_cleaner_log_before_the_first_run():
+    assert answers.cleaner_log([]) == "The cleaner hasn't run yet."

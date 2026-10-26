@@ -66,6 +66,7 @@ def make_movie(
 def isolate_flagged_file(monkeypatch, tmp_path):
     """Keep tests off the real deletion queue in data/flagged.json."""
     monkeypatch.setattr("core.storage.get_flagged_file", lambda: tmp_path / "flagged.json")
+    monkeypatch.setattr("core.storage.get_cleaner_log_file", lambda: tmp_path / "cleaner_runs.json")
 
 
 @pytest.fixture(autouse=True)

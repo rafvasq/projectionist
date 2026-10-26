@@ -392,3 +392,40 @@ def test_main_returns_one_on_failure(base_config):
          patch("jobs.cleaner.WhatsAppNotifier"):
         plex_cls.from_config.return_value.connect.side_effect = Exception("Plex down")
         assert cleaner.main([]) == 1
+
+
+# ==============================================================================
+# Run history for /log
+# ==============================================================================
+
+def test_each_run_is_recorded_and_only_the_last_five_are_kept(base_config):
+    from core.storage import load_cleaner_runs
+
+    plex, radarr, notifier = env(make_movie(ratingKey=2, added_days_ago=10))
+    for _ in range(7):
+        cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier)
+
+    runs = load_cleaner_runs()
+    assert len(runs) == 5
+    assert runs[0]["status"] == "no_candidates" and runs[0]["dry_run"] is False and runs[0]["queued"] == 0
+
+
+def test_a_run_records_what_it_flagged_and_deleted(base_config):
+    from core.storage import load_cleaner_runs
+
+    movie = idle_movie(title="Old Classic", tmdb_id=500)
+    queue(movie)
+    plex, radarr, notifier = env(movie)
+    cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier, overseerr=seerr())
+
+    entry = load_cleaner_runs()[0]
+    assert entry["deleted"] == ["Old Classic"] and entry["status"] == "completed"
+
+
+def test_a_disabled_cleaner_is_not_recorded(base_config):
+    from core.storage import load_cleaner_runs
+
+    base_config["deletion"]["enabled"] = False
+    plex, radarr, notifier = env()
+    cleaner.run(cfg=base_config, plex=plex, radarr=radarr, notifier=notifier)
+    assert load_cleaner_runs() == []

@@ -336,3 +336,12 @@ def test_the_app_hands_radarr_to_the_commands():
     app = create_app(config={"whatsapp": {"allowed_numbers": []}}, radarr=radarr, testing=True)
     with app.app_context():
         assert get_services()["radarr"] is radarr
+
+
+def test_log_shows_the_recent_cleaner_runs(storage):
+    from core.storage import save_cleaner_runs
+
+    assert "hasn't run yet" in dispatch("/log", make_ctx([]))
+    save_cleaner_runs([{"at": "2026-10-26T12:44-04:00", "status": "no_candidates", "dry_run": True, "queued": 115}])
+    reply = dispatch("/log", make_ctx([]))
+    assert "Oct 26 12:44 · dry run · nothing to do · 115 queued" in reply

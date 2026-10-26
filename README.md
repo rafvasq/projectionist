@@ -113,6 +113,7 @@ Roles: by default every number in `allowed_numbers` is an admin. To let family m
 | `/keep <title> [year]` | Tag a movie already in Plex with "Keep Forever" so the cleaner skips it. Matching is forgiving (typos, accents, a missing "the", words in any order). An exact title is tagged immediately; anything else asks "Did you mean…?" first. |
 | `/unkeep <title> [year]` | Remove the tag, with the same matching and confirmation. |
 | `/leaving` | List the movies flagged for deletion with the date each one goes and why, plus whether the cleaner is disabled, in dry-run, or active. |
+| `/log` | Show the cleaner's last five runs: what it flagged, removed, or failed on, and whether each was a dry run. |
 | `/recent [days]` | List movies added to the library in the last N days (default 7, up to 365). |
 | `/downloads` | Show what Radarr is downloading, and what it is still waiting on a release for (searched, nothing found yet, or not released). |
 | `/status` | Show collections from imported lists that are still waiting on downloads (for example `3/10 ready`). A collection is forgotten once everything has arrived. |

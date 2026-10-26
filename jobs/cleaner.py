@@ -22,7 +22,7 @@ from core.flagged import due_keys, reconcile, sort_key
 from core.notifier import WhatsAppNotifier
 from core.plex import PlexClient
 from core.retention import flag_movies
-from core.storage import load_flagged, save_flagged
+from core.storage import load_cleaner_runs, load_flagged, save_cleaner_runs, save_flagged
 from services.overseerr import OverseerrService
 from services.radarr import RadarrService
 
@@ -32,6 +32,7 @@ COLLECTION_LEAVING_SOON = "Leaving Soon"
 DEFAULT_GRACE_DAYS = 30
 DEFAULT_MAX_DELETIONS = 10
 DEFAULT_LEAVING_SOON_LIMIT = 25
+RUN_HISTORY = 5
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -138,7 +139,7 @@ def refresh_leaving_soon_row(plex: PlexClient, queue: dict[str, Any], by_key: di
         logger.warning("Could not refresh the Leaving Soon row: %s", exc)
 
 
-def run_cleaner(
+def _run_cleaner(
     cfg: Optional[dict[str, Any]] = None,
     config_path: Optional[str] = None,
     dry_run: Optional[bool] = None,
@@ -364,6 +365,45 @@ def run_cleaner(
         "queued": len(queue),
         "deferred": deferred,
     }
+
+
+def _record_run(result: dict[str, Any]) -> None:
+    """Keep the last few runs for /log. A disabled cleaner did nothing worth recording."""
+    if result.get("status") == "disabled":
+        return
+    entry = {
+        "at": datetime.now().astimezone().isoformat(timespec="minutes"),
+        "status": result.get("status"),
+        "dry_run": bool(result.get("dry_run")),
+        "deleted": result.get("deleted", []),
+        "failed": result.get("failed", []),
+        "cleanup_issues": result.get("cleanup_issues", []),
+        "flagged": len(result.get("flagged", [])),
+        "queued": result.get("queued", 0),
+        "deferred": result.get("deferred", 0),
+    }
+    try:
+        save_cleaner_runs(([entry] + load_cleaner_runs())[:RUN_HISTORY])
+    except Exception as exc:
+        logger.warning("Could not record the cleaner run: %s", exc)
+
+
+def run_cleaner(
+    cfg: Optional[dict[str, Any]] = None,
+    config_path: Optional[str] = None,
+    dry_run: Optional[bool] = None,
+    plex: Optional[PlexClient] = None,
+    radarr: Optional[RadarrService] = None,
+    notifier: Optional[WhatsAppNotifier] = None,
+    overseerr: Optional[OverseerrService] = None,
+) -> dict[str, Any]:
+    """Execute one cleaner pass (see _run_cleaner) and remember how it went."""
+    result = _run_cleaner(
+        cfg=cfg, config_path=config_path, dry_run=dry_run, plex=plex,
+        radarr=radarr, notifier=notifier, overseerr=overseerr,
+    )
+    _record_run(result)
+    return result
 
 
 def run(

@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from bot import answers
 from core.flagged import dequeue
-from core.storage import load_tracked_collections, load_whatsapp_state, save_whatsapp_state
+from core.storage import load_cleaner_runs, load_tracked_collections, load_whatsapp_state, save_whatsapp_state
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +200,10 @@ def cmd_leaving(ctx: CommandContext, args: str) -> str:
     return error or answers.leaving(movies, ctx.config)
 
 
+def cmd_log(ctx: CommandContext, args: str) -> str:
+    return answers.cleaner_log(load_cleaner_runs())
+
+
 def cmd_recent(ctx: CommandContext, args: str) -> str:
     days = 7
     if args:
@@ -243,6 +247,7 @@ COMMANDS = {
     "keep": ("/keep <title> [year]", "protect a movie in Plex from cleanup", lambda c, a: _keep_change(c, a, "keep")),
     "unkeep": ("/unkeep <title> [year]", "remove Keep Forever from a movie", lambda c, a: _keep_change(c, a, "unkeep")),
     "leaving": ("/leaving", "movies flagged for deletion", cmd_leaving),
+    "log": ("/log", "the cleaner's last few runs", cmd_log),
     "recent": ("/recent [days]", "movies added lately (default 7 days)", cmd_recent),
     "downloads": ("/downloads", "what is downloading or waiting for a release", cmd_downloads),
     "status": ("/status", "collections still waiting on downloads", cmd_status),

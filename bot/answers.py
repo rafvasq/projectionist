@@ -174,3 +174,52 @@ def leaving(movies: list[Any], config: dict[str, Any]) -> str:
     if unqueued:
         lines.append(f"{unqueued} more will be flagged at the next cleaner run.")
     return f"🧹 *Flagged for deletion ({len(queued)})*\n" + "\n".join(lines) + f"\n\n{mode}\nUse /keep <title> to save one."
+
+
+# ==============================================================================
+# /log
+# ==============================================================================
+
+def _names(titles: list[str], shown: int = 3) -> str:
+    return ", ".join(titles[:shown]) + (f" +{len(titles) - shown}" if len(titles) > shown else "")
+
+
+def _run_summary(run: dict[str, Any]) -> str:
+    status = run.get("status")
+    stopped = {
+        "plex_error": "couldn't reach Plex",
+        "config_error": "stopped: fix the deletion rules",
+        "radarr_not_configured": "stopped: Radarr isn't configured",
+    }
+    if status in stopped:
+        return stopped[status]
+    deleted, failed, issues = run.get("deleted") or [], run.get("failed") or [], run.get("cleanup_issues") or []
+    parts = []
+    if deleted:
+        parts.append(f"removed {len(deleted)} ({_names(deleted)})")
+    if failed:
+        parts.append(f"{len(failed)} failed")
+    if issues:
+        parts.append(f"{len(issues)} cleanup issue{'s' if len(issues) != 1 else ''}")
+    if run.get("flagged"):
+        parts.append(f"flagged {run['flagged']}")
+    if run.get("deferred"):
+        parts.append(f"{run['deferred']} deferred")
+    if not parts:
+        parts.append("nothing to do")
+    return " · ".join(parts + [f"{run.get('queued', 0)} queued"])
+
+
+def cleaner_log(runs: list[dict[str, Any]]) -> str:
+    """The cleaner's last few runs, newest first, one line each."""
+    if not runs:
+        return "The cleaner hasn't run yet."
+    lines = []
+    for run in runs:
+        try:
+            stamp = f"{datetime.fromisoformat(run['at']):%b %d %H:%M}"
+        except (KeyError, ValueError):
+            stamp = "unknown time"
+        mode = "dry run" if run.get("dry_run") else "live"
+        lines.append(f"- {stamp} · {mode} · {_run_summary(run)}")
+    return "📜 *Recent cleaner runs*\n" + "\n".join(lines)

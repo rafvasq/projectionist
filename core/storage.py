@@ -158,6 +158,20 @@ def save_flagged(queue: dict[str, Any], path: Optional[Union[Path, str]] = None)
     atomic_write_json(Path(path) if path else get_flagged_file(), queue)
 
 
+def get_cleaner_log_file() -> Path:
+    return get_data_dir() / "cleaner_runs.json"
+
+
+def load_cleaner_runs(path: Optional[Union[Path, str]] = None) -> list[dict[str, Any]]:
+    """The cleaner's last few runs, newest first."""
+    res = atomic_read_json(Path(path) if path else get_cleaner_log_file(), default=[])
+    return res if isinstance(res, list) else []
+
+
+def save_cleaner_runs(runs: list[dict[str, Any]], path: Optional[Union[Path, str]] = None) -> None:
+    atomic_write_json(Path(path) if path else get_cleaner_log_file(), runs)
+
+
 def load_cooldown(*args: Any, **kwargs: Any) -> Tuple[list[dict[str, Any]], Set[int]]:
     """
     Load curator cooldown history and set of surfaced ratingKeys within the cutoff window.
