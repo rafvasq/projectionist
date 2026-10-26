@@ -41,6 +41,20 @@ def create_app(
     # Configure Twilio auth token
     wa_cfg = cfg.get("whatsapp", {}) if isinstance(cfg, dict) else {}
     app.config["TWILIO_AUTH_TOKEN"] = wa_cfg.get("twilio_auth_token")
+    app.config["TWILIO_VERIFY_SIGNATURE"] = bool(wa_cfg.get("verify_signature", True))
+    app.config["TWILIO_PUBLIC_URL"] = wa_cfg.get("public_url") or None
+
+    # Configure Overseerr webhook shared secret
+    os_cfg = cfg.get("overseerr", {}) if isinstance(cfg, dict) else {}
+    app.config["OVERSEERR_WEBHOOK_SECRET"] = os_cfg.get("webhook_secret") or None
+
+    if not testing:
+        if not app.config["TWILIO_VERIFY_SIGNATURE"]:
+            logger.warning("Twilio signature verification is DISABLED (whatsapp.verify_signature: false).")
+        elif not app.config["TWILIO_AUTH_TOKEN"]:
+            logger.warning("whatsapp.twilio_auth_token is not set: the WhatsApp webhook will reject all requests.")
+        if not app.config["OVERSEERR_WEBHOOK_SECRET"]:
+            logger.warning("overseerr.webhook_secret is not set: the Overseerr webhook will reject all requests.")
 
     # Configure AI environment & model
     ai_cfg = cfg.get("ai", {}) if isinstance(cfg, dict) else {}

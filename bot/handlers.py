@@ -31,7 +31,7 @@ from services.letterboxd import (
     fetch_letterboxd_html,
     scrape_letterboxd_list,
 )
-from bot.security import is_authorized_number
+from bot.security import is_authorized_number, overseerr_auth_required, twilio_auth_required
 
 logger = logging.getLogger(__name__)
 
@@ -214,9 +214,10 @@ def run_collection_process_async(
 
 @bot_bp.route("/whatsapp", methods=["POST"])
 @bot_bp.route("/webhook/twilio", methods=["POST"])
+@twilio_auth_required()
 def receive_whatsapp():
     """
-    Twilio WhatsApp Webhook endpoint.
+    Twilio WhatsApp Webhook endpoint (Twilio signature verified).
     Processes user commands, natural language queries, and state machine replies.
     """
     from bot.app import get_services
@@ -396,9 +397,10 @@ def receive_whatsapp():
 
 @bot_bp.route("/overseerr", methods=["POST"])
 @bot_bp.route("/webhook/overseerr", methods=["POST"])
+@overseerr_auth_required()
 def receive_overseerr():
     """
-    Overseerr Webhook endpoint.
+    Overseerr Webhook endpoint (shared secret verified).
     Notifies WhatsApp users when requested media finishes downloading and becomes available.
     Reconciles newly available items against active tracked collections.
     """

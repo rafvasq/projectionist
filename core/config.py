@@ -77,6 +77,9 @@ def load_config(config_path: Optional[str] = None) -> dict[str, Any]:
     if "OVERSEERR_API_KEY" in os.environ:
         config["overseerr"]["api_key"] = os.environ["OVERSEERR_API_KEY"]
 
+    if "OVERSEERR_WEBHOOK_SECRET" in os.environ:
+        config["overseerr"]["webhook_secret"] = os.environ["OVERSEERR_WEBHOOK_SECRET"]
+
     if "RADARR_URL" in os.environ:
         config["radarr"]["url"] = os.environ["RADARR_URL"]
     if "RADARR_API_KEY" in os.environ:

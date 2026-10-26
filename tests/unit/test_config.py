@@ -295,3 +295,9 @@ def test_load_config_scalar_sections_normalized_to_dict(tmp_path, monkeypatch):
     assert cfg["deletion"] == {}
     assert cfg["rows"] == {}
     assert cfg["schedule"] == {}
+
+
+def test_load_config_overseerr_webhook_secret_env_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERSEERR_WEBHOOK_SECRET", "env-secret")
+    cfg = load_config(str(tmp_path / "missing.yaml"))
+    assert cfg["overseerr"]["webhook_secret"] == "env-secret"

@@ -31,6 +31,13 @@ whatsapp:
   twilio_account_sid: ""
   twilio_auth_token: ""
   twilio_phone_number: ""
+  # The webhook verifies Twilio's request signature using twilio_auth_token and rejects
+  # requests without a valid one. Behind a reverse proxy or tunnel (e.g. the bundled ngrok)
+  # set this to the public base URL Twilio calls, with no path. With ngrok it is
+  # https://<NGROK_DOMAIN>, the same domain as the webhook URL you gave Twilio:
+  # public_url: "https://bot.example.com"
+  # Local development only: skip signature verification.
+  # verify_signature: false
   # Optional Twilio Content Template SIDs:
   # availability_template_sid: ""
   # digest_template_sid: ""
@@ -39,6 +46,10 @@ whatsapp:
 overseerr:
   url: "http://192.168.1.X:5055"
   api_key: ""
+  # Shared secret for the /overseerr webhook (required). Set the same value as the
+  # "Authorization Header" in Overseerr > Settings > Notifications > Webhook.
+  # Generate one with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+  webhook_secret: ""
 
 radarr:
   url: "http://192.168.1.X:7878"

@@ -107,8 +107,10 @@ def test_validate_twilio_request_bypass_in_test_mode():
     mock_req.testing = True
     assert validate_twilio_request(mock_req) is True
 
+    # Fails closed: with no auth token configured, requests are rejected.
     mock_req.testing = False
-    assert validate_twilio_request(mock_req, auth_token=None) is True
+    mock_req.headers = {"X-Twilio-Signature": "sig"}
+    assert validate_twilio_request(mock_req, auth_token=None) is False
 
 
 def test_validate_twilio_request_missing_signature():

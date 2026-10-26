@@ -92,8 +92,8 @@ docker compose exec ollama ollama pull llama3
 
 ## Webhooks
 
-- **Twilio WhatsApp**: Point webhook URL to `https://<domain>/whatsapp` (HTTP POST).
-- **Overseerr**: Under Settings > Notifications > Webhook, point webhook URL to `https://<domain>/overseerr` and enable **Media Available**.
+- **Twilio WhatsApp**: Point webhook URL to `https://<domain>/whatsapp` (HTTP POST). Requests are verified with Twilio's signature using `whatsapp.twilio_auth_token`, and anything unsigned is rejected with `403`. If the bot sits behind a proxy or tunnel that doesn't send `X-Forwarded-Proto`/`X-Forwarded-Host`, set `whatsapp.public_url` (for example `https://bot.example.com`) so the signature is checked against the URL Twilio actually calls. For local development only, `whatsapp.verify_signature: false` skips the check.
+- **Overseerr**: Under Settings > Notifications > Webhook, point webhook URL to `https://<domain>/overseerr` and enable **Media Available**. Set a long random string as `overseerr.webhook_secret` (or `OVERSEERR_WEBHOOK_SECRET`) and put the same value in Overseerr's **Authorization Header** field. Requests without it are rejected with `403`.
 
 ---
 
