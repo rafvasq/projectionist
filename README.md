@@ -10,8 +10,8 @@ Projectionist is a self-hosted AI concierge, curation layer, and automated stora
 
 ## Features
 
-- **WhatsApp Bot & Requests**: Request movies and TV shows conversationally using natural language. Paste Letterboxd list or movie links to batch request titles and optionally create Plex collections tagged "Keep Forever". Tracks download progress and notifies users when requested items are ready on Plex.
-- **Automated Clean Up & Leaving Soon**: Flags movies nobody has added or watched for a configured time, holds them in a queue for a grace period (30 days by default) while a "Leaving Soon" collection in Plex shows what is going, then removes them via Radarr, a limited number per run. `/keep` rescues a film. Tagged titles and tracked collections are protected, and summaries and failure alerts go to WhatsApp.
+- **WhatsApp Bot & Requests**: Request movies and TV shows conversationally using natural language. Paste Letterboxd list or movie links to batch request titles and optionally create Plex collections tagged "Keep Forever". Tracks download progress and notifies users when requested items are ready on Plex. Admins get slash commands (`/keep`, `/leaving`, ...); family members can be given a user role that only requests and receives notices.
+- **Automated Clean Up & Leaving Soon**: Flags movies nobody has added or watched for a configured time, holds them in a queue for a grace period (30 days by default) while a "Leaving Soon" collection in Plex shows what is going, then removes them via Radarr, a limited number per run. `/keep` rescues a film. Tagged titles and tracked collections are protected, and summaries and failure alerts go to admins on WhatsApp. Configure the threshold with `max_age_days` or define your own `rules` (see `config.example.yaml`); the cleaner starts in dry-run.
 - **AI Themed Collections**: Generates creative, themed collections from unwatched library titles and pins them to your Plex home screen. Cooldown tracking ensures films are not repeated across consecutive runs.
 - **Weekly Digest**: Sends a scheduled WhatsApp digest showcasing newly added media alongside recommendations surfaced from your collection.
 
@@ -61,6 +61,7 @@ whatsapp:
 overseerr:
   url: "http://localhost:5055"
   api_key: "<overseerr-api-key>"
+  webhook_secret: "<long-random-string>"   # required, see Webhooks
 
 radarr:
   url: "http://localhost:7878"
@@ -82,6 +83,8 @@ deletion:
 ```bash
 docker compose up -d
 ```
+
+On start, the scheduler container runs the curator and cleaner once, then on a schedule (curator Mondays 03:00 by default, cleaner Thursdays 04:00, digest Fridays 12:00). The first cleaner run flags every movie that matches your rules, so keep `dry_run: true` until you have checked `/leaving` and the Leaving Soon row in Plex.
 
 For local LLM inference via Ollama:
 
@@ -120,7 +123,7 @@ Roles: by default every number in `allowed_numbers` is an admin. To let family m
 Jobs can be executed directly from the command line:
 
 ```bash
-# Clean up expired media
+# Flag idle movies and delete those past their grace window
 python -m jobs.cleaner [--dry-run | --no-dry-run]
 
 # Generate AI collections and sync tracked collections
