@@ -186,3 +186,13 @@ def test_send_alert():
     call_kwargs = mock_client.messages.create.call_args.kwargs
     assert "🚨 *Projectionist Alert*" in call_kwargs["body"]
     assert "Radarr failed to delete movie" in call_kwargs["body"]
+
+
+def test_new_collection_template_comes_from_config():
+    from core.notifier import WhatsAppNotifier
+
+    notifier = WhatsAppNotifier.from_config(
+        {"whatsapp": {"allowed_numbers": ["+15551111111"], "new_collection_template_sid": "HX_NEW"}}
+    )
+    assert notifier.new_collection_template_sid == "HX_NEW"
+    assert WhatsAppNotifier.from_config({"whatsapp": {"allowed_numbers": []}}).new_collection_template_sid is None

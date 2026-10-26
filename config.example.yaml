@@ -51,6 +51,9 @@ whatsapp:
   # availability_template_sid: ""
   # digest_template_sid: ""
   # cleaner_template_sid: ""
+  # Template for the "new collection" notice sent to everyone but the person who imported the list.
+  # Without one it is sent as plain text, which WhatsApp only delivers inside a 24-hour window.
+  # new_collection_template_sid: ""
 
 overseerr:
   url: "http://192.168.1.X:5055"

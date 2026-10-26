@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from core.notifier import normalize_whatsapp_number
 from core.plex import MovieMeta, PlexClient
 from core.storage import load_tracked_collections, save_tracked_collections
 from services.overseerr import OverseerrService
@@ -280,6 +281,24 @@ class CollectionTracker:
     # Letterboxd list processing
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _announce_collection(notifier: Any, sender: str, title: str, total: int, ready: int) -> None:
+        """Tell everyone but the importer (who gets the full report) that a collection was created."""
+        others = [n for n in notifier.allowed_numbers if n != normalize_whatsapp_number(sender)]
+        if not others:
+            return
+        coming = total - ready
+        films = f"{total} film" if total == 1 else f"{total} films"
+        detail = f"{films}, {ready} ready, {coming} on their way" if coming else f"{films}, all ready"
+        body = f"📁 New collection: *{title}* ({detail})"
+        sid = getattr(notifier, "new_collection_template_sid", None)
+        try:
+            notifier.send_broadcast(
+                body=body, recipients=others, content_sid=sid, content_variables={"1": body} if sid else None
+            )
+        except Exception as e:
+            logger.error("Error announcing collection '%s': %s", title, e)
+
     def process_letterboxd_collection(
         self,
         sender: str,
@@ -432,6 +451,9 @@ class CollectionTracker:
                 notifier.send_message(sender, msg)
             except Exception as e:
                 logger.error("Error sending WhatsApp notification: %s", e)
+
+        if create_collection and notifier and hasattr(notifier, "send_broadcast"):
+            self._announce_collection(notifier, sender, list_title, len(tracked_items), len(already_in_plex_keys))
 
         return {
             "list_title": list_title,

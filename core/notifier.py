@@ -68,8 +68,10 @@ class WhatsAppNotifier:
         allowed_numbers: Optional[list[str]] = None,
         client: Optional[Any] = None,
         admin_numbers: Optional[list[str]] = None,
+        new_collection_template_sid: Optional[str] = None,
     ) -> None:
         self.account_sid = account_sid
+        self.new_collection_template_sid = new_collection_template_sid
         self.auth_token = auth_token
         self.from_number = normalize_whatsapp_number(from_number) if from_number else None
         self.allowed_numbers = [
@@ -111,6 +113,7 @@ class WhatsAppNotifier:
             from_number=wa_cfg.get("twilio_phone_number"),
             allowed_numbers=numbers(users),
             admin_numbers=numbers(users, ADMIN),
+            new_collection_template_sid=wa_cfg.get("new_collection_template_sid"),
         )
 
     @property

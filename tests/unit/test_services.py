@@ -733,3 +733,72 @@ def test_overseerr_search_percent_encodes_query(mock_get):
     svc.search("Prey for Rock & Roll")
 
     assert mock_get.call_args.kwargs["params"] == "query=Prey%20for%20Rock%20%26%20Roll"
+
+
+# ==============================================================================
+# New-collection announcement
+# ==============================================================================
+
+SENDER = "whatsapp:+15551111111"
+OTHER = "whatsapp:+15552222222"
+
+
+def _import_list(tmp_path, notifier, titles=("Existing Film", "Missing Film (2021)"), create_collection=True):
+    tracked_file = tmp_path / "tracked_collections.json"
+    tracked_file.write_text("{}", encoding="utf-8")
+    mock_plex = MagicMock()
+    mock_plex.fetch_movies.return_value = [MagicMock(ratingKey=101, tmdb_id=1001, title="Existing Film")]
+    mock_overseerr = MagicMock()
+    mock_overseerr.search.side_effect = lambda title: [{"id": 1001 if title == "Existing Film" else 1002, "mediaType": "movie",
+                                                        "title": title, "releaseDate": "2020-01-01"}]
+    mock_overseerr.find_best_match.side_effect = lambda t, target_year=None, media_list=None, allow_tv=False: ("movie", media_list[0])
+    mock_overseerr.request_media.return_value = True
+    tracker = CollectionTracker(plex=mock_plex, overseerr=mock_overseerr, storage_path=tracked_file)
+    return tracker.process_letterboxd_collection(
+        sender=SENDER, list_title="My List", titles=list(titles), create_collection=create_collection, notifier=notifier
+    )
+
+
+def _notifier(numbers=(SENDER, OTHER), sid=None):
+    return MagicMock(allowed_numbers=list(numbers), new_collection_template_sid=sid)
+
+
+def test_a_new_collection_is_announced_to_everyone_but_the_importer(tmp_path):
+    notifier = _notifier()
+    _import_list(tmp_path, notifier)
+    notifier.send_broadcast.assert_called_once()
+    kwargs = notifier.send_broadcast.call_args.kwargs
+    assert kwargs["recipients"] == [OTHER]
+    assert kwargs["body"] == "📁 New collection: *My List* (2 films, 1 ready, 1 on their way)"
+    assert kwargs["content_sid"] is None and kwargs["content_variables"] is None
+    notifier.send_message.assert_called_once()           # the importer still gets the full report
+
+
+def test_the_announcement_uses_the_template_when_one_is_configured(tmp_path):
+    notifier = _notifier(sid="HX_NEW")
+    _import_list(tmp_path, notifier)
+    kwargs = notifier.send_broadcast.call_args.kwargs
+    assert kwargs["content_sid"] == "HX_NEW" and kwargs["content_variables"] == {"1": kwargs["body"]}
+
+
+def test_a_collection_whose_films_are_all_ready_says_so(tmp_path):
+    notifier = _notifier()
+    _import_list(tmp_path, notifier, titles=["Existing Film"])
+    assert notifier.send_broadcast.call_args.kwargs["body"] == "📁 New collection: *My List* (1 film, all ready)"
+
+
+def test_no_announcement_without_a_collection_or_without_anyone_else(tmp_path):
+    no_collection = _notifier()
+    _import_list(tmp_path, no_collection, create_collection=False)
+    no_collection.send_broadcast.assert_not_called()
+
+    alone = _notifier(numbers=[SENDER])
+    _import_list(tmp_path, alone)
+    alone.send_broadcast.assert_not_called()
+
+
+def test_a_failed_announcement_does_not_fail_the_import(tmp_path):
+    notifier = _notifier()
+    notifier.send_broadcast.side_effect = RuntimeError("twilio down")
+    result = _import_list(tmp_path, notifier)
+    assert result["list_title"] == "My List" and result["requested"] == ["Missing Film"]
