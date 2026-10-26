@@ -198,14 +198,6 @@ def test_unkeep_untagged_movie(storage):
     ctx.plex.remove_label.assert_not_called()
 
 
-@pytest.mark.parametrize("protect, noted", [(True, True), (False, False)])
-def test_unkeep_mentions_protecting_collection(storage, protect, noted):
-    storage["tracked"].write_text(json.dumps({"Classic Noir": {"protect": protect, "items": {}}}), encoding="utf-8")
-    ctx = make_ctx([make_movie(ratingKey=9, title="Heat", labels=["Keep Forever"], collections=["Classic Noir"])])
-    reply = dispatch("/unkeep Heat", ctx)
-    assert ("still protected by the tracked collection *Classic Noir*" in reply) is noted
-
-
 def test_unkeep_only_considers_tagged_matches(storage):
     movies = [
         make_movie(ratingKey=1, title="Dune", year=1984),
@@ -288,7 +280,7 @@ def test_keep_takes_the_movie_off_the_deletion_queue(storage):
 
 
 def test_status(storage):
-    assert "No tracked collections yet" in dispatch("/status", make_ctx([]))
+    assert "No collections are waiting on downloads" in dispatch("/status", make_ctx([]))
     storage["tracked"].write_text(json.dumps({
         "Girl Bands": {"items": {"1": {"status": "available"}, "2": {"status": "pending"}}},
         "Noir": {"items": {"3": {"status": "available"}}},

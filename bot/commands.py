@@ -115,24 +115,6 @@ def _protect_labels(movie: Any) -> list[str]:
     return [l for l in (movie.labels or []) if l.strip().lower() in PROTECT_LABELS]
 
 
-def _collection_note(movie: Any) -> str:
-    """Note when a tracked collection still protects the movie (retention honors those)."""
-    try:
-        tracked = load_tracked_collections()
-    except Exception as exc:
-        logger.warning("Could not load tracked collections: %s", exc)
-        return ""
-    member_of = {c.strip().lower() for c in movie.collections or []}
-    names = [
-        t for t, d in tracked.items()
-        if t.strip().lower() in member_of and (d.get("protect", True) if isinstance(d, dict) else True)
-    ]
-    if not names:
-        return ""
-    joined = ", ".join(f"*{n}*" for n in names)
-    return f"\n🔒 It's still protected by the tracked collection {joined}."
-
-
 def _library(ctx: CommandContext) -> tuple[Optional[list[Any]], Optional[str]]:
     """Fresh movie list, or an error reply as the second item."""
     if ctx.plex is None:
@@ -166,7 +148,7 @@ def _keep_change(ctx: CommandContext, args: str, action: str) -> str:
         if not candidates:
             if len(matches) > 1:
                 return f"ℹ️ None of the {len(matches)} matches for '{args}' are tagged Keep Forever."
-            return f"ℹ️ *{_label(matches[0])}* isn't tagged Keep Forever." + _collection_note(matches[0])
+            return f"ℹ️ *{_label(matches[0])}* isn't tagged Keep Forever."
 
     # Apply a single exact title match straight away; anything looser is confirmed first.
     if exact and len(candidates) == 1:
@@ -205,10 +187,10 @@ def apply_keep_change(ctx: CommandContext, action: str, rating_key: int, title: 
             return f"❌ *{title}* is no longer in your Plex library."
         labels = _protect_labels(movie)
         if not labels:
-            return f"ℹ️ *{title}* isn't tagged Keep Forever." + _collection_note(movie)
+            return f"ℹ️ *{title}* isn't tagged Keep Forever."
         if sum(ctx.plex.remove_label([rating_key], label) for label in labels) < len(labels):
             return f"❌ Couldn't fully untag *{title}*. Check the logs."
-        return f"🔓 *{title}* is no longer tagged Keep Forever." + _collection_note(movie)
+        return f"🔓 *{title}* is no longer tagged Keep Forever."
     except Exception as exc:
         logger.error("Error applying /%s to %s: %s", action, title, exc)
         return f"❌ Something went wrong updating *{title}*."
@@ -257,14 +239,14 @@ def cmd_leaving(ctx: CommandContext, args: str) -> str:
 def cmd_status(ctx: CommandContext, args: str) -> str:
     tracked = load_tracked_collections()
     if not tracked:
-        return "No tracked collections yet. Paste a Letterboxd list link to create one."
+        return "No collections are waiting on downloads. Paste a Letterboxd list link to create one."
     lines = []
     for title, data in tracked.items():
         items = data.get("items", {}) if isinstance(data, dict) else {}
         ready = sum(1 for it in items.values() if isinstance(it, dict) and it.get("status") == "available")
         icon = "✅" if items and ready == len(items) else "⏳"
         lines.append(f"{icon} *{title}*: {ready}/{len(items)} ready")
-    return "📁 *Tracked collections*\n" + "\n".join(lines)
+    return "📁 *Collections waiting on downloads*\n" + "\n".join(lines)
 
 
 def cmd_help(ctx: CommandContext, args: str) -> str:
@@ -278,7 +260,7 @@ COMMANDS = {
     "keep": ("/keep <title> [year]", "protect a movie in Plex from cleanup", lambda c, a: _keep_change(c, a, "keep")),
     "unkeep": ("/unkeep <title> [year]", "remove Keep Forever from a movie", lambda c, a: _keep_change(c, a, "unkeep")),
     "leaving": ("/leaving", "movies flagged for deletion", cmd_leaving),
-    "status": ("/status", "download progress of tracked collections", cmd_status),
+    "status": ("/status", "collections still waiting on downloads", cmd_status),
     "help": ("/help", "show this list", cmd_help),
 }
 

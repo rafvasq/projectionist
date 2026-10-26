@@ -3,7 +3,8 @@ core/retention.py
 Retention rules: which movies are flagged for deletion, and why.
 
 A movie is flagged when every condition of at least one rule matches. Protected movies
-(labels, collections, tracked collections) are never flagged. Three conditions exist,
+(carrying a Keep / Keep Forever label, or a protect_tag, as a label or collection) are never
+flagged; movies from imported lists get the Keep Forever label. Three conditions exist,
 each with a _gte or _lt suffix:
   idle_days          days since the later of "added" and "last watched"
   added_days         days since added
@@ -22,7 +23,6 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from core.plex import MovieMeta
-from core.storage import load_tracked_collections
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def load_rules(del_cfg: dict[str, Any]) -> list[tuple[str, dict[str, float]]]:
     return rules
 
 
-def _protect_tags(del_cfg: dict[str, Any], tracked: dict[str, Any]) -> set[str]:
+def _protect_tags(del_cfg: dict[str, Any]) -> set[str]:
     raw = del_cfg.get("protect_tag", ["Keep", "Keep Forever"])
     if isinstance(raw, str):
         tags = {raw.strip().lower()}
@@ -84,9 +84,6 @@ def _protect_tags(del_cfg: dict[str, Any], tracked: dict[str, Any]) -> set[str]:
     else:
         tags = set()
     tags.update({"keep", "keep forever"})
-    for title, data in tracked.items():
-        if not isinstance(data, dict) or data.get("protect", True):
-            tags.add(str(title).strip().lower())
     return tags
 
 
@@ -131,20 +128,12 @@ def _reason(when: dict[str, float], metrics: dict[str, float]) -> str:
 def flag_movies(
     movies: list[MovieMeta],
     cfg: dict[str, Any],
-    tracked_collections: Optional[dict[str, Any]] = None,
     now: Optional[datetime] = None,
 ) -> list[Flag]:
     """Movies matching a retention rule, each with the first rule that matched and why."""
     del_cfg = cfg.get("deletion", {}) if isinstance(cfg, dict) else {}
     rules = load_rules(del_cfg)
-
-    if tracked_collections is None:
-        try:
-            tracked_collections = load_tracked_collections()
-        except Exception as exc:
-            logger.warning("Could not load tracked collections: %s", exc)
-            tracked_collections = {}
-    protect = _protect_tags(del_cfg, tracked_collections if isinstance(tracked_collections, dict) else {})
+    protect = _protect_tags(del_cfg)
 
     now = now or datetime.now(timezone.utc)
     flags: list[Flag] = []

@@ -29,10 +29,32 @@ def _format_preview_list(items: List[str], max_items: int = 5) -> str:
     return f"{', '.join(items[:max_items])} (+{len(items) - max_items} more)"
 
 
+def _protect(client: PlexClient, keys: List[int], collection: str) -> None:
+    """Tag movies Keep Forever so the cleaner skips them, and warn when a tag did not take."""
+    labelled = client.add_label(keys, "Keep Forever")
+    if isinstance(labelled, int) and labelled < len(keys):
+        logger.warning(
+            "Only %d of %d movies in '%s' were tagged Keep Forever; the cleaner may flag the rest",
+            labelled, len(keys), collection,
+        )
+
+
+def _prune_finished(tracked: Dict[str, Any]) -> bool:
+    """Drop collections with nothing left to wait for. Returns True if any were dropped."""
+    done = [
+        title for title, data in tracked.items()
+        if all(item.get("status") == "available" for item in data.get("items", {}).values())
+    ]
+    for title in done:
+        del tracked[title]
+    return bool(done)
+
+
 class CollectionTracker:
     """
-    Coordinates tracked collections created from Letterboxd lists or manual requests,
-    handling Plex reconciliation and Overseerr availability notifications.
+    Tracks list items that are still waiting to download so they can join their Plex
+    collection when they arrive. A collection is forgotten once everything has arrived;
+    its movies stay protected by their Keep Forever tag.
     """
 
     def __init__(
@@ -161,11 +183,11 @@ class CollectionTracker:
                         promote=coll_data.get("promote", True),
                     )
                     if coll_data.get("protect", True):
-                        client.add_label(keys_to_add, "Keep Forever")
+                        _protect(client, keys_to_add, coll_title)
                 except Exception as e:
                     logger.error("Error syncing items to collection '%s': %s", coll_title, e)
 
-        if updated:
+        if _prune_finished(tracked) or updated:
             self._save_state(tracked)
 
     # ------------------------------------------------------------------
@@ -237,7 +259,7 @@ class CollectionTracker:
                         promote=coll_data.get("promote", True),
                     )
                     if coll_data.get("protect", True):
-                        client.add_label([plex_movie.ratingKey], "Keep Forever")
+                        _protect(client, [plex_movie.ratingKey], coll_title)
                 except Exception as e:
                     logger.error("Error adding %d to collection '%s': %s", tmdb_id, coll_title, e)
 
@@ -250,6 +272,7 @@ class CollectionTracker:
                 "sender": coll_data.get("sender"),
             })
 
+        _prune_finished(tracked)
         self._save_state(tracked)
         return results
 
@@ -375,20 +398,22 @@ class CollectionTracker:
             if already_in_plex_keys:
                 try:
                     client.add_to_collection(list_title, already_in_plex_keys, promote=True)
-                    client.add_label(already_in_plex_keys, "Keep Forever")
+                    _protect(client, already_in_plex_keys, list_title)
                 except Exception as e:
                     logger.error("Error adding existing movies to Plex collection '%s': %s", list_title, e)
 
-            tracked = self._load_state()
-            tracked[list_title] = {
-                "title": list_title,
-                "sender": sender,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "protect": True,
-                "promote": True,
-                "items": tracked_items,
-            }
-            self._save_state(tracked)
+            # Only collections with films still on their way need tracking.
+            if any(item["status"] == "pending" for item in tracked_items.values()):
+                tracked = self._load_state()
+                tracked[list_title] = {
+                    "title": list_title,
+                    "sender": sender,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "protect": True,
+                    "promote": True,
+                    "items": tracked_items,
+                }
+                self._save_state(tracked)
 
         # Build notification message
         msg = f"✅ *{list_title}* processed!\n\n"

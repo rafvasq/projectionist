@@ -553,6 +553,7 @@ def test_sync_tracked_collections_reconciles_by_tmdb_and_title(tmp_path):
             "items": {
                 "1001": {"title": "Movie A", "status": "pending", "ratingKey": None},
                 "1002": {"title": "Movie B", "status": "pending", "ratingKey": None},
+                "1003": {"title": "Movie C", "status": "pending", "ratingKey": None},
             },
         }
     }
@@ -580,6 +581,7 @@ def test_sync_tracked_collections_reconciles_by_tmdb_and_title(tmp_path):
     assert items["1001"]["ratingKey"] == 201
     assert items["1002"]["status"] == "available"
     assert items["1002"]["ratingKey"] == 202
+    assert items["1003"]["status"] == "pending"   # still waiting, so the collection is kept
 
     mock_plex.add_to_collection.assert_called_once_with("Cult Classics", [201, 202], promote=True)
     mock_plex.add_label.assert_called_once_with([201, 202], "Keep Forever")
@@ -664,6 +666,63 @@ def test_process_letterboxd_collection_flow(tmp_path):
     mock_plex.add_label.assert_called_once_with([101], "Keep Forever")
     mock_overseerr.request_media.assert_called_once_with("movie", 1002)
     mock_notifier.send_message.assert_called_once()
+
+
+def _tracked(items):
+    return {"Noir": {"title": "Noir", "sender": "whatsapp:+15551234567", "protect": True, "promote": True, "items": items}}
+
+
+def test_sync_forgets_collections_with_nothing_left_to_wait_for(tmp_path):
+    tracked_file = tmp_path / "tracked_collections.json"
+    tracked_file.write_text(json.dumps(_tracked({"1": {"title": "A", "status": "available", "ratingKey": 5}})), encoding="utf-8")
+
+    CollectionTracker(plex=MagicMock(), storage_path=tracked_file).sync_tracked_collections()
+
+    assert json.loads(tracked_file.read_text(encoding="utf-8")) == {}
+
+
+def test_last_arrival_completes_and_forgets_the_collection(tmp_path):
+    tracked_file = tmp_path / "tracked_collections.json"
+    tracked_file.write_text(json.dumps(_tracked({"999": {"title": "Arrival", "status": "pending", "ratingKey": None}})), encoding="utf-8")
+    mock_plex = MagicMock()
+    arrival = MagicMock(tmdb_id=999, ratingKey=501, title="Arrival")
+    mock_plex.fetch_movies.return_value = [arrival]
+
+    matches = CollectionTracker(plex=mock_plex, storage_path=tracked_file).handle_media_available(
+        999, title_hint="Arrival", retry_delay=0.0
+    )
+
+    assert matches[0]["ready_count"] == matches[0]["total_count"] == 1   # the owner still hears it is complete
+    assert json.loads(tracked_file.read_text(encoding="utf-8")) == {}
+
+
+def test_failed_keep_forever_tag_is_logged(tmp_path, caplog):
+    tracked_file = tmp_path / "tracked_collections.json"
+    tracked_file.write_text(json.dumps(_tracked({"999": {"title": "Arrival", "status": "pending", "ratingKey": None}})), encoding="utf-8")
+    mock_plex = MagicMock()
+    mock_plex.fetch_movies.return_value = [MagicMock(tmdb_id=999, ratingKey=501, title="Arrival")]
+    mock_plex.add_label.return_value = 0
+
+    CollectionTracker(plex=mock_plex, storage_path=tracked_file).handle_media_available(999, retry_delay=0.0)
+
+    assert "Only 0 of 1 movies in 'Noir' were tagged Keep Forever" in caplog.text
+
+
+def test_list_with_everything_already_in_plex_is_not_tracked(tmp_path):
+    tracked_file = tmp_path / "tracked_collections.json"
+    tracked_file.write_text("{}", encoding="utf-8")
+    mock_plex = MagicMock()
+    mock_plex.fetch_movies.return_value = [MagicMock(ratingKey=101, tmdb_id=1001, title="Existing Film")]
+    mock_overseerr = MagicMock()
+    mock_overseerr.search.return_value = [{"id": 1001, "mediaType": "movie", "title": "Existing Film", "releaseDate": "2020-01-01"}]
+    mock_overseerr.find_best_match.side_effect = lambda t, target_year=None, media_list=None, allow_tv=False: ("movie", media_list[0])
+
+    tracker = CollectionTracker(plex=mock_plex, overseerr=mock_overseerr, storage_path=tracked_file)
+    tracker.process_letterboxd_collection(sender="whatsapp:+15551234567", list_title="All Here", titles=["Existing Film"])
+
+    mock_plex.add_to_collection.assert_called_once_with("All Here", [101], promote=True)
+    mock_plex.add_label.assert_called_once_with([101], "Keep Forever")
+    assert json.loads(tracked_file.read_text(encoding="utf-8")) == {}
 
 
 @patch("requests.get")

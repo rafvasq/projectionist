@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
 
 import pytest
 
@@ -13,9 +12,8 @@ from tests.conftest import make_movie
 CFG = {"deletion": {"max_age_days": 120}}
 
 
-def keys(movies, cfg=CFG, tracked=None):
-    flags = flag_movies(movies, cfg, tracked_collections={} if tracked is None else tracked)
-    return [f.movie.ratingKey for f in flags]
+def keys(movies, cfg=CFG):
+    return [f.movie.ratingKey for f in flag_movies(movies, cfg)]
 
 
 def days_ago(n):
@@ -73,19 +71,12 @@ def test_labels_and_collections_protect():
     assert keys(movies, cfg) == []
 
 
-def test_tracked_collections_protect_unless_opted_out():
-    tracked = {"Cyberpunk Essentials": {"protect": True}, "Temporary Watchlist": {"protect": False}}
+def test_only_the_keep_tags_protect_not_collection_membership():
     movies = [
-        make_movie(ratingKey=1, added_days_ago=200, collections=["Cyberpunk Essentials"]),
-        make_movie(ratingKey=2, added_days_ago=200, collections=["Temporary Watchlist"]),
+        make_movie(ratingKey=1, added_days_ago=200, collections=["Cyberpunk Essentials"]),   # just a collection
+        make_movie(ratingKey=2, added_days_ago=200, collections=["Cyberpunk Essentials"], labels=["Keep Forever"]),
     ]
-    assert keys(movies, tracked=tracked) == [2]
-
-
-def test_tracked_collections_are_loaded_from_storage_when_not_given():
-    movie = make_movie(ratingKey=1, added_days_ago=150, collections=["Sci-Fi Greats"])
-    with patch("core.retention.load_tracked_collections", return_value={"Sci-Fi Greats": {"protect": True}}):
-        assert flag_movies([movie], CFG) == []
+    assert keys(movies) == [1]
 
 
 # ==============================================================================
@@ -107,7 +98,7 @@ def test_rules_use_the_first_match_and_explain_why():
         make_movie(ratingKey=3, added_days_ago=200, last_viewed_at=days_ago(70)),
         make_movie(ratingKey=4, added_days_ago=70, last_viewed_at=days_ago(10)),
     ]
-    flags = {f.movie.ratingKey: f for f in flag_movies(movies, RULES_CFG, tracked_collections={})}
+    flags = {f.movie.ratingKey: f for f in flag_movies(movies, RULES_CFG)}
     assert set(flags) == {1, 2, 3}
     assert (flags[1].rule, flags[1].reason) == ("forgotten", "last watched 400 days ago")
     assert (flags[2].rule, flags[2].reason) == ("unwatched", "added 100 days ago, never watched")
