@@ -227,7 +227,7 @@ def test_universal_cancel(client, test_app):
             data={"From": "whatsapp:+15551234567", "Body": "0"},
         )
         assert resp.status_code == 200
-        assert b"Search cancelled" in resp.data
+        assert b"Cancelled" in resp.data
 
         state = json.loads(state_file.read_text(encoding="utf-8"))
         assert state["whatsapp:+15551234567"]["status"] == "IDLE"

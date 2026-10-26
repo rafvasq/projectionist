@@ -279,7 +279,7 @@ def receive_whatsapp():
         state = load_whatsapp_state()
         state[sender] = {"status": "IDLE"}
         save_whatsapp_state(state)
-        twiml_resp.message("❌ Search cancelled. Text me another movie or show.")
+        twiml_resp.message("❌ Cancelled.")
         return str(twiml_resp)
 
     # 3. Slash Commands (a leading "/" is required, so titles like "Keep the Lights On" never match)

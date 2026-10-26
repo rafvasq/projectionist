@@ -79,7 +79,7 @@ def test_valid_signature_is_accepted(secured):
         headers={"X-Twilio-Signature": sign("http://localhost/whatsapp", params)},
     )
     assert resp.status_code == 200
-    assert b"Search cancelled" in resp.data
+    assert b"Cancelled" in resp.data
 
 
 def test_signature_for_tampered_body_is_rejected(secured):
@@ -164,7 +164,7 @@ def test_verify_signature_can_be_disabled_for_local_dev(tmp_path):
     try:
         resp = app.test_client().post("/whatsapp", data={"From": SENDER, "Body": "0"})
         assert resp.status_code == 200
-        assert b"Search cancelled" in resp.data
+        assert b"Cancelled" in resp.data
     finally:
         for p in patches:
             p.stop()
