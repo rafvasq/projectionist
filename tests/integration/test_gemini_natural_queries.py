@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import pytest
 from mellea import start_session
-from core.ai import parse_movie, MovieIntent, setup_ai_env
+from core.ai import read_movie, MovieIntent, setup_ai_env
 from core.config import load_config
 
 # Check if Gemini API Key is available
@@ -20,7 +20,7 @@ def test_parse_movie_complex_query():
     model = setup_ai_env(cfg)
 
     with start_session("litellm", model) as session:
-        intent = parse_movie(m=session, text="that movie with the guy who has scissors for hands from 1990")
+        intent = read_movie(m=session, text="that movie with the guy who has scissors for hands from 1990")
 
     assert "Edward Scissorhands" in intent.title
     assert intent.year == 1990

@@ -251,7 +251,7 @@ def test_process_search_async_execution(test_app, mock_services):
     ]
 
     with patch("core.storage.get_whatsapp_state_file", return_value=state_file), \
-         patch("bot.handlers.parse_movie") as mock_parse, \
+         patch("bot.handlers.read_movie") as mock_parse, \
          patch("bot.handlers.ai_session"):
         mock_parse.return_value = MagicMock(title="Interstellar", year=2014)
 

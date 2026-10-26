@@ -71,3 +71,55 @@ def test_malformed_output_propagates_for_the_caller_to_handle():
 def test_the_minimum_matches_the_prompt():
     assert MIN_ROW_KEYS == 10       # the generative prompt asks for 10-20 films
 
+
+# ==============================================================================
+# read_movie
+# ==============================================================================
+
+def intent(title, year=None):
+    return json.dumps({"result": {"title": title, "year": year}})
+
+
+def read(session):
+    from core.ai import read_movie
+
+    return read_movie(m=session, text="that movie with the scissor hands")
+
+
+def test_a_sensible_answer_is_accepted_without_a_retry():
+    session, backend = scripted_session(intent("Edward Scissorhands", 1990))
+    result = read(session)
+    assert (result.title, result.year) == ("Edward Scissorhands", 1990)
+    assert backend.idx == 1
+
+
+def test_no_year_is_fine():
+    session, backend = scripted_session(intent("Heat"))
+    assert read(session).year is None and backend.idx == 1
+
+
+def test_the_newest_allowed_year_is_two_years_ahead():
+    from datetime import date
+
+    session, _ = scripted_session(intent("Upcoming", date.today().year + 2))
+    assert read(session).year == date.today().year + 2
+
+
+@pytest.mark.parametrize("bad_year", [1500, 3024, 0])
+def test_an_implausible_year_triggers_a_retry(bad_year):
+    session, backend = scripted_session(intent("Edward Scissorhands", bad_year), intent("Edward Scissorhands", 1990))
+    assert read(session).year == 1990 and backend.idx == 2
+
+
+def test_a_year_that_stays_implausible_is_dropped_but_the_title_is_kept():
+    session, backend = scripted_session(intent("Edward Scissorhands", 3024), intent("Edward Scissorhands", 3024))
+    result = read(session)
+    assert (result.title, result.year) == ("Edward Scissorhands", None)
+    assert backend.idx == 2
+
+
+def test_an_empty_title_retries_and_then_raises_so_the_raw_text_is_used():
+    session, backend = scripted_session(intent("  ", 1990), intent("", 1990))
+    with pytest.raises(ValueError):
+        read(session)
+    assert backend.idx == 2

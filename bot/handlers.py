@@ -20,7 +20,7 @@ from typing import Any, Optional
 from flask import Blueprint, current_app, jsonify, request
 from twilio.twiml.messaging_response import MessagingResponse
 
-from core.ai import ai_session, parse_movie
+from core.ai import ai_session, read_movie
 from core.notifier import normalize_whatsapp_number
 from core.storage import (
     load_whatsapp_state,
@@ -83,7 +83,7 @@ def process_search_async(app: Any, sender: str, text: str) -> None:
         # 1. AI Intent Extraction via Mellea
         try:
             with ai_session(ai_model) as session:
-                intent = parse_movie(m=session, text=text)
+                intent = read_movie(m=session, text=text)
             query = intent.title
             logger.info("Mellea Extracted Intent: %s", intent)
         except Exception as e:

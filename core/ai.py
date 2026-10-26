@@ -7,6 +7,7 @@ Defines Pydantic models, generative AI curation and intent parsing, and environm
 from __future__ import annotations
 import json
 import os
+from datetime import date
 from contextlib import contextmanager
 from typing import Any, Generator, Optional
 
@@ -17,6 +18,8 @@ from mellea.stdlib.sampling import RejectionSamplingStrategy
 
 MIN_ROW_KEYS = 10
 RETRY_BUDGET = 3
+MIN_FILM_YEAR = 1888      # the first film
+INTENT_RETRY_BUDGET = 2
 
 
 class CurationResult(BaseModel):
@@ -82,6 +85,39 @@ def curate_row(m: Any, movies_json: str, exclude_themes_str: str, valid_keys: se
     if len(valid) < MIN_ROW_KEYS:
         raise ValueError(f"only {len(valid)} of {len(result.keys)} returned keys are in the library")
     return CurationResult(name=result.name, keys=valid)
+
+
+def _year_is_plausible(year: Optional[int]) -> bool:
+    return year is None or MIN_FILM_YEAR <= year <= date.today().year + 2
+
+
+def read_movie(m: Any, text: str) -> MovieIntent:
+    """
+    Resolve a message to a title and an optional year with parse_movie. A missing title or an
+    implausible year triggers one retry; if the year is still implausible it is dropped and the
+    title kept. Raises ValueError when no title comes back, so the caller falls back to the raw text.
+    """
+    def sensible(output: str) -> bool:
+        try:
+            found = json.loads(output)["result"]
+        except (ValueError, KeyError, TypeError):
+            return False
+        return bool((found.get("title") or "").strip()) and _year_is_plausible(found.get("year"))
+
+    intent = parse_movie(
+        m=m,
+        text=text,
+        requirements=[req(
+            "Give a non-empty title, and a release year between 1888 and two years from now, or no year.",
+            validation_fn=simple_validate(sensible, reason="The title was empty or the year was not a plausible film year."),
+        )],
+        strategy=RejectionSamplingStrategy(loop_budget=INTENT_RETRY_BUDGET),
+    )
+    if not intent.title.strip():
+        raise ValueError("no title in the model's answer")
+    if not _year_is_plausible(intent.year):
+        return MovieIntent(title=intent.title, year=None)
+    return intent
 
 
 def setup_ai_env(cfg: dict[str, Any], default_model: str = "gemini-3.5-flash-lite") -> str:
