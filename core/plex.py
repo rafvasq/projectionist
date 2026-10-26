@@ -324,6 +324,19 @@ class PlexClient:
         items.sort(key=lambda m: order.get(m.ratingKey, len(keys)))
         return items
 
+    def list_collections(self, library_name: Optional[str] = None) -> list[str]:
+        """Names of the collections in the movie library."""
+        library = self.server.library.section(library_name or self._library_name)
+        return [c.title for c in library.collections()]
+
+    def collection_keys(self, title: str, library_name: Optional[str] = None) -> list[int]:
+        """ratingKeys of the movies in a collection. Empty if it doesn't exist."""
+        library = self.server.library.section(library_name or self._library_name)
+        try:
+            return [m.ratingKey for m in library.collection(title).items()]
+        except NotFound:
+            return []
+
     def delete_collection(self, title: str, library_name: Optional[str] = None) -> bool:
         """Delete collection by name. Returns True if deleted, False if not found."""
         lib_name = library_name or self._library_name

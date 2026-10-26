@@ -345,3 +345,60 @@ def test_log_shows_the_recent_cleaner_runs(storage):
     save_cleaner_runs([{"at": "2026-10-26T12:44-04:00", "status": "no_candidates", "dry_run": True, "queued": 115}])
     reply = dispatch("/log", make_ctx([]))
     assert "Oct 26 12:44 · dry run · nothing to do · 115 queued" in reply
+
+
+# ==============================================================================
+# /drop
+# ==============================================================================
+
+def drop_ctx(names, keys=(1, 2, 3)):
+    ctx = make_ctx([])
+    ctx.plex.list_collections.return_value = names
+    ctx.plex.collection_keys.return_value = list(keys)
+    ctx.plex.delete_collection.return_value = True
+    ctx.plex.remove_label.return_value = len(keys)
+    return ctx
+
+
+def test_drop_asks_before_anything_changes(storage):
+    from core.storage import save_tracked_collections
+
+    save_tracked_collections({"Girl Bands": {"items": {"1": {"status": "pending"}, "2": {"status": "available"}}}})
+    ctx = drop_ctx(["Girl Bands", "Leaving Soon"])
+    reply = dispatch("/drop girl bands", ctx)
+    assert "*Girl Bands* (3 films)" in reply and "1 not downloaded yet" in reply
+    ctx.plex.delete_collection.assert_not_called()
+    state = saved_state(storage)
+    assert state["action"] == "drop" and state["options"]["2"] == {"title": "Girl Bands", "unprotect": True}
+
+
+def test_drop_refuses_leaving_soon_and_unknown_names(storage):
+    ctx = drop_ctx(["Leaving Soon", "Noir"])
+    assert "No collection matching" in dispatch("/drop Leaving Soon", ctx)
+    assert "No collection matching" in dispatch("/drop Westerns", ctx)
+    assert "Usage" in dispatch("/drop", ctx)
+    assert "Several" in dispatch("/drop noir", drop_ctx(["Neo Noir", "Film Noir"]))
+
+
+def test_apply_drop_keeps_or_removes_protection(storage):
+    from bot.commands import apply_drop
+    from core.storage import load_tracked_collections, save_tracked_collections
+
+    save_tracked_collections({"Noir": {"items": {}}, "Other": {"items": {}}})
+    ctx = drop_ctx(["Noir"])
+    assert "stay protected" in apply_drop(ctx, "Noir", False)
+    ctx.plex.remove_label.assert_not_called()
+    assert list(load_tracked_collections()) == ["Other"]
+
+    assert "removed from 3 films" in apply_drop(ctx, "Noir", True)
+    ctx.plex.remove_label.assert_called_once_with([1, 2, 3], "Keep Forever")
+
+
+def test_apply_drop_reports_failures(storage):
+    from bot.commands import apply_drop
+
+    ctx = drop_ctx(["Noir"])
+    ctx.plex.remove_label.return_value = 1
+    assert "couldn't be removed" in apply_drop(ctx, "Noir", True)
+    ctx.plex.delete_collection.return_value = False
+    assert "no longer in Plex" in apply_drop(ctx, "Noir", False)

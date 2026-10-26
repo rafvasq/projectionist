@@ -13,11 +13,14 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from bot import answers
 from core.flagged import dequeue
-from core.storage import load_cleaner_runs, load_tracked_collections, load_whatsapp_state, save_whatsapp_state
+from core.storage import (
+    load_cleaner_runs, load_tracked_collections, load_whatsapp_state, save_tracked_collections, save_whatsapp_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +195,68 @@ def apply_keep_change(ctx: CommandContext, action: str, rating_key: int, title: 
 
 
 # ==============================================================================
+# /drop
+# ==============================================================================
+
+LEAVING_SOON = "Leaving Soon"
+
+
+def cmd_drop(ctx: CommandContext, args: str) -> str:
+    if not args:
+        return "Usage: /drop <collection>\nExample: /drop Girl Bands"
+    if ctx.plex is None:
+        return _PLEX_DOWN
+    try:
+        names = [n for n in ctx.plex.list_collections() if n != LEAVING_SOON]
+        found, _ = _match([(c, _normalize(c.title)) for c in map(_named, names)], args, None)
+        if not found:
+            return f"❌ No collection matching '{args}'."
+        if len(found) > 1:
+            return "Several collections match, be more specific:\n" + "\n".join(f"• {c.title}" for c in found[:MAX_CHOICES])
+        name = found[0].title
+        films = len(ctx.plex.collection_keys(name))
+    except Exception as exc:
+        logger.error("Could not look up collections: %s", exc)
+        return "❌ Couldn't reach Plex."
+
+    pending = sum(1 for i in load_tracked_collections().get(name, {}).get("items", {}).values() if i.get("status") == "pending")
+    options = {"1": {"title": name, "unprotect": False}, "2": {"title": name, "unprotect": True}}
+    state = load_whatsapp_state()
+    state[ctx.sender] = {"status": "WAITING_KEEP_CHOICE", "action": "drop", "options": options}
+    save_whatsapp_state(state)
+    note = f"\n{pending} not downloaded yet; they stay requested in Overseerr but will no longer join a collection." if pending else ""
+    return (
+        f"Drop the collection *{name}* ({films} films)?{note}\n\n"
+        f"1{_KEYCAP} Delete it; the films stay protected\n"
+        f"2{_KEYCAP} Delete it and remove Keep Forever from its films\n\n"
+        "Reply with a number\n❌ Reply 0 to Cancel"
+    )
+
+
+def _named(title: str) -> Any:
+    return SimpleNamespace(title=title, year=None)
+
+
+def apply_drop(ctx: CommandContext, name: str, unprotect: bool) -> str:
+    """Delete a collection, stop tracking it, and optionally take Keep Forever off its films."""
+    if ctx.plex is None:
+        return _PLEX_DOWN
+    try:
+        keys = ctx.plex.collection_keys(name)
+        if not ctx.plex.delete_collection(name):
+            return f"❌ *{name}* is no longer in Plex."
+        tracked = load_tracked_collections()
+        if tracked.pop(name, None) is not None:
+            save_tracked_collections(tracked)
+        if unprotect and keys and ctx.plex.remove_label(keys, KEEP_LABEL) < len(keys):
+            return f"⚠️ Deleted *{name}*, but Keep Forever couldn't be removed from every film. Check the logs."
+    except Exception as exc:
+        logger.error("Error dropping collection %s: %s", name, exc)
+        return f"❌ Something went wrong dropping *{name}*."
+    return f"🗑️ Deleted *{name}*." + (f" Keep Forever removed from {len(keys)} films." if unprotect else " Its films stay protected.")
+
+
+# ==============================================================================
 # /leaving, /status, /help
 # ==============================================================================
 
@@ -246,6 +311,7 @@ def cmd_help(ctx: CommandContext, args: str) -> str:
 COMMANDS = {
     "keep": ("/keep <title> [year]", "protect a movie in Plex from cleanup", lambda c, a: _keep_change(c, a, "keep")),
     "unkeep": ("/unkeep <title> [year]", "remove Keep Forever from a movie", lambda c, a: _keep_change(c, a, "unkeep")),
+    "drop": ("/drop <collection>", "delete a collection, optionally unprotecting its films", cmd_drop),
     "leaving": ("/leaving", "movies flagged for deletion", cmd_leaving),
     "log": ("/log", "the cleaner's last few runs", cmd_log),
     "recent": ("/recent [days]", "movies added lately (default 7 days)", cmd_recent),

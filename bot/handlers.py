@@ -32,7 +32,7 @@ from services.letterboxd import (
     fetch_letterboxd_html,
     scrape_letterboxd_list,
 )
-from bot.commands import CommandContext, apply_keep_change, dispatch, parse_command
+from bot.commands import CommandContext, apply_drop, apply_keep_change, dispatch, parse_command
 from bot.security import overseerr_auth_required, twilio_auth_required
 from core.roles import ADMIN, numbers, role_of
 
@@ -237,7 +237,10 @@ def run_keep_choice_async(app: Any, sender: str, action: str, selected: dict[str
     """Apply a numbered /keep or /unkeep selection and reply via the notifier."""
     with app.app_context():
         ctx, notifier = _command_context(sender)
-        reply = apply_keep_change(ctx, action, selected.get("ratingKey"), selected.get("title", ""))
+        if action == "drop":
+            reply = apply_drop(ctx, selected["title"], selected.get("unprotect", False))
+        else:
+            reply = apply_keep_change(ctx, action, selected.get("ratingKey"), selected.get("title", ""))
         if notifier:
             notifier.send_message(sender, reply)
 

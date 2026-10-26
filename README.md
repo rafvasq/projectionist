@@ -117,6 +117,7 @@ Roles: by default every number in `allowed_numbers` is an admin. To let family m
 | `/recent [days]` | List movies added to the library in the last N days (default 7, up to 365). |
 | `/downloads` | Show what Radarr is downloading, and what it is still waiting on a release for (searched, nothing found yet, or not released). |
 | `/status` | Show collections from imported lists that are still waiting on downloads (for example `3/10 ready`). A collection is forgotten once everything has arrived. |
+| `/drop <collection>` | Delete a Plex collection (matched by name; "Leaving Soon" is refused). It always asks first: **1** deletes the collection and the films stay protected, **2** also removes Keep Forever from its films. Films from an imported list that haven't downloaded yet stay requested in Overseerr but stop being tracked, so they won't rebuild the collection. |
 | `/help` | List the commands. |
 
 ---
